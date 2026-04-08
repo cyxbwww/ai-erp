@@ -94,7 +94,9 @@
                 <n-tag size="small" :type="aiResults[card.type] ? 'success' : 'default'">
                   {{ aiResults[card.type] ? '已生成' : '未生成' }}
                 </n-tag>
-                <n-button size="tiny" :loading="aiLoadingMap[card.type]" @click="generateAI(card.type)">重新生成</n-button>
+                <n-button size="tiny" :loading="aiLoadingMap[card.type]" @click="generateAI(card.type)">
+                  {{ getGenerateButtonText(card.type) }}
+                </n-button>
                 <n-button size="tiny" :disabled="!aiResults[card.type]" @click="copyAIResult(card.type)">复制结果</n-button>
               </n-space>
             </template>
@@ -149,7 +151,13 @@ import {
   getProductStatusTagType
 } from '@/constants/enums'
 import { getOrderRuntimeStateMap } from '@/utils/order-runtime-state'
-import * as echarts from 'echarts'
+import * as echarts from 'echarts/core'
+import { BarChart, LineChart, PieChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+
+// ECharts 按需注册：使用 npm 版本并避免全量打包。
+echarts.use([LineChart, PieChart, BarChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
 
 type AIType = 'sales' | 'risk' | 'customer' | 'inventory'
 
@@ -167,6 +175,7 @@ type DashboardPersistedAI = {
   results: Record<AIType, DashboardAIResult | null>
   generatedAt: Record<AIType, string>
 }
+type DashboardPersistedAIPool = Partial<Record<TimeRangePreset, DashboardPersistedAI>>
 
 type RiskOrderItem = {
   id: number
@@ -246,6 +255,31 @@ const aiGeneratedAt = reactive<Record<AIType, string>>({
   customer: '',
   inventory: ''
 })
+
+// 构建空 AI 持久化结构，避免字段缺失导致渲染异常。
+const createEmptyPersistedAI = (): DashboardPersistedAI => ({
+  results: {
+    sales: null,
+    risk: null,
+    customer: null,
+    inventory: null
+  },
+  generatedAt: {
+    sales: '',
+    risk: '',
+    customer: '',
+    inventory: ''
+  }
+})
+
+// 将持久化数据写回响应式状态。
+const applyPersistedAIState = (persisted?: DashboardPersistedAI) => {
+  const target = persisted || createEmptyPersistedAI()
+  ;(['sales', 'risk', 'customer', 'inventory'] as AIType[]).forEach((type) => {
+    aiResults[type] = target.results?.[type] || null
+    aiGeneratedAt[type] = target.generatedAt?.[type] || ''
+  })
+}
 
 // 解析接口时间字符串，兼容 yyyy-MM-dd HH:mm:ss 格式。
 const toTimeMs = (raw?: string) => {
@@ -395,7 +429,8 @@ const lowStockColumns: DataTableColumns<ProductItem> = [
           tertiary: true,
           type: 'primary',
           onClick: () => {
-            router.push({ name: 'Product' })
+            // 预留筛选语义：商品页可按 query 识别来自看板的低库存入口。
+            router.push({ name: 'Product', query: { from: 'dashboard', inventory_status: 'low' } })
           }
         },
         { default: () => '查看' }
@@ -429,7 +464,12 @@ const riskOrderColumns: DataTableColumns<RiskOrderItem> = [
           tertiary: true,
           type: 'primary',
           onClick: () => {
-            router.push({ name: 'OrderDetail', params: { id: String(row.id) } })
+            // 预留风险处理语义，便于详情页后续定向展示。
+            router.push({
+              name: 'OrderDetail',
+              params: { id: String(row.id) },
+              query: { from: 'dashboard', focus: 'risk' }
+            })
           }
         },
         { default: () => '处理' }
@@ -459,7 +499,12 @@ const followCustomerColumns: DataTableColumns<PendingFollowCustomerItem> = [
           tertiary: true,
           type: 'primary',
           onClick: () => {
-            router.push({ name: 'CustomerDetail', params: { id: String(row.id) } })
+            // 预留待跟进语义，便于客户页后续聚焦跟进区域。
+            router.push({
+              name: 'CustomerDetail',
+              params: { id: String(row.id) },
+              query: { from: 'dashboard', focus: 'pending_follow' }
+            })
           }
         },
         { default: () => '跟进' }
@@ -468,24 +513,31 @@ const followCustomerColumns: DataTableColumns<PendingFollowCustomerItem> = [
 ]
 
 // 读取持久化 AI 结果。
-const restorePersistedAIResults = () => {
+const restorePersistedAIResults = (preset: TimeRangePreset = timeRangePreset.value) => {
   try {
     const raw = localStorage.getItem(DASHBOARD_AI_STORAGE_KEY)
-    if (!raw) return
-    const persisted = JSON.parse(raw) as DashboardPersistedAI
+    if (!raw) {
+      applyPersistedAIState()
+      return
+    }
+    const parsed = JSON.parse(raw) as DashboardPersistedAI | DashboardPersistedAIPool
 
-    ;(['sales', 'risk', 'customer', 'inventory'] as AIType[]).forEach((type) => {
-      aiResults[type] = persisted.results?.[type] || null
-      aiGeneratedAt[type] = persisted.generatedAt?.[type] || ''
-    })
+    // 兼容旧格式（单层 results/generatedAt）和新格式（按时间范围分层）。
+    if ((parsed as DashboardPersistedAI).results && (parsed as DashboardPersistedAI).generatedAt) {
+      applyPersistedAIState(parsed as DashboardPersistedAI)
+      return
+    }
+    const pool = parsed as DashboardPersistedAIPool
+    applyPersistedAIState(pool[preset])
   } catch (_error) {
     // 忽略持久化读取异常，避免影响页面加载。
+    applyPersistedAIState()
   }
 }
 
 // 持久化 AI 结果。
-const persistAIResults = () => {
-  const payload: DashboardPersistedAI = {
+const persistAIResults = (preset: TimeRangePreset = timeRangePreset.value) => {
+  const currentState: DashboardPersistedAI = {
     results: {
       sales: aiResults.sales,
       risk: aiResults.risk,
@@ -499,7 +551,26 @@ const persistAIResults = () => {
       inventory: aiGeneratedAt.inventory
     }
   }
-  localStorage.setItem(DASHBOARD_AI_STORAGE_KEY, JSON.stringify(payload))
+
+  let pool: DashboardPersistedAIPool = {}
+  try {
+    const raw = localStorage.getItem(DASHBOARD_AI_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as DashboardPersistedAI | DashboardPersistedAIPool
+      if ((parsed as DashboardPersistedAI).results && (parsed as DashboardPersistedAI).generatedAt) {
+        // 旧格式迁移：将旧结果归档到当前时间范围。
+        pool[preset] = parsed as DashboardPersistedAI
+      } else {
+        pool = parsed as DashboardPersistedAIPool
+      }
+    }
+  } catch (_error) {
+    // 持久化解析失败时回退为空对象，保证当前结果可写入。
+    pool = {}
+  }
+
+  pool[preset] = currentState
+  localStorage.setItem(DASHBOARD_AI_STORAGE_KEY, JSON.stringify(pool))
 }
 
 // 分页拉全量数据。
@@ -746,6 +817,10 @@ const buildAIResult = (type: AIType): DashboardAIResult => {
 
   if (type === 'customer') {
     const highValue = filteredCustomers.value.filter((item) => ['vip', 'strategic'].includes(item.level))
+    const lostCustomerPoints = filteredCustomers.value
+      .filter((item) => item.status === 'lost')
+      .slice(0, 5)
+      .map((item) => `${item.name}`)
     return {
       summary: `高价值客户 ${highValue.length} 个，待跟进客户 ${pendingFollowCustomers.value.length} 个。`,
       sections: [
@@ -759,19 +834,25 @@ const buildAIResult = (type: AIType): DashboardAIResult => {
         },
         {
           title: '可能流失客户提醒',
-          points: filteredCustomers.value.filter((item) => item.status === 'lost').slice(0, 5).map((item) => `${item.name}`) || ['暂无流失客户']
+          points: lostCustomerPoints.length ? lostCustomerPoints : ['暂无流失客户']
         },
         { title: '推荐动作', points: ['建立高价值客户周度触达机制', '对超期客户自动派发跟进任务'] }
       ]
     }
   }
 
+  const outOfStockPoints = products.value
+    .filter((item) => item.stock_qty <= 0)
+    .slice(0, 6)
+    .map((item) => `${item.name}`)
+  const restockSuggestPoints = topProductData.value.slice(0, 3).map((item) => `${item.product_name}（建议优先补货）`)
+
   return {
     summary: `当前低库存商品 ${lowStockProducts.value.length} 个，缺货商品 ${products.value.filter((item) => item.stock_qty <= 0).length} 个。`,
     sections: [
       {
         title: '缺货商品',
-        points: products.value.filter((item) => item.stock_qty <= 0).slice(0, 6).map((item) => `${item.name}`) || ['暂无缺货商品']
+        points: outOfStockPoints.length ? outOfStockPoints : ['暂无缺货商品']
       },
       {
         title: '低库存商品',
@@ -779,7 +860,7 @@ const buildAIResult = (type: AIType): DashboardAIResult => {
       },
       {
         title: '建议补货商品',
-        points: topProductData.value.slice(0, 3).map((item) => `${item.product_name}（建议优先补货）`) || ['暂无建议补货商品']
+        points: restockSuggestPoints.length ? restockSuggestPoints : ['暂无建议补货商品']
       },
       { title: '处理建议', points: ['按销量 Top 商品优先补货', '设置低库存阈值自动提醒并联动采购'] }
     ]
@@ -809,6 +890,9 @@ const buildAIText = (type: AIType) => {
   return [`【${cardTitle}】`, `分析时间：${aiGeneratedAt[type] || '-'}`, result.summary, ...sections].join('\n')
 }
 
+// AI 生成按钮文案：首次生成显示“生成分析”，已有结果显示“重新生成”。
+const getGenerateButtonText = (type: AIType) => (aiResults[type] ? '重新生成' : '生成分析')
+
 const copyAIResult = async (type: AIType) => {
   const text = buildAIText(type)
   if (!text) {
@@ -827,6 +911,7 @@ const copyAIResult = async (type: AIType) => {
 const handleTimeRangeChange = async () => {
   pageLoading.value = true
   try {
+    restorePersistedAIResults(timeRangePreset.value)
     await buildTopProducts()
     await renderCharts()
     dashboardRefreshedAt.value = new Date().toLocaleString('zh-CN')
