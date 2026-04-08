@@ -149,12 +149,7 @@ import {
   getProductStatusTagType
 } from '@/constants/enums'
 import { getOrderRuntimeStateMap } from '@/utils/order-runtime-state'
-
-declare global {
-  interface Window {
-    echarts?: any
-  }
-}
+import * as echarts from 'echarts'
 
 type AIType = 'sales' | 'risk' | 'customer' | 'inventory'
 
@@ -598,31 +593,7 @@ const getRangeDateLabels = () => {
   return labels
 }
 
-// 动态加载 ECharts（CDN 方案，避免安装依赖失败阻塞开发）。
-const ensureECharts = async (): Promise<any> => {
-  if (window.echarts) return window.echarts
-
-  return new Promise((resolve, reject) => {
-    const scriptId = 'dashboard-echarts-cdn'
-    const existing = document.getElementById(scriptId) as HTMLScriptElement | null
-    if (existing) {
-      existing.onload = () => resolve(window.echarts)
-      existing.onerror = reject
-      return
-    }
-
-    const script = document.createElement('script')
-    script.id = scriptId
-    script.src = 'https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js'
-    script.async = true
-    script.onload = () => resolve(window.echarts)
-    script.onerror = () => reject(new Error('ECharts 加载失败'))
-    document.head.appendChild(script)
-  })
-}
-
 const renderCharts = async () => {
-  const echarts = await ensureECharts()
   await nextTick()
 
   if (salesTrendRef.value) {
