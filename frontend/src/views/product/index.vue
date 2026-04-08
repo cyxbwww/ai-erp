@@ -387,10 +387,21 @@ const detailBusinessInfo = computed(() => {
   if (!p) {
     return { relatedOrderCount: 0, totalSales: 0, lastOrderedAt: '-' }
   }
-  // 演示数据：后续可替换为真实统计接口
-  const relatedOrderCount = (p.id % 6) + 1
-  const totalSales = relatedOrderCount * ((p.id % 5) + 3)
-  const lastOrderedAt = p.updated_at || p.created_at || '-'
+  // 演示版业务统计占位：当前项目未接入商品维度订单聚合接口，
+  // 这里基于商品稳定字段生成“相对自然且可复现”的展示数据，后续应替换为后端真实聚合统计。
+  const seedText = `${p.code || ''}|${p.name || ''}|${p.category || ''}|${p.created_at || ''}`
+  const seed = Array.from(seedText).reduce((sum, ch) => sum + ch.charCodeAt(0), 0)
+
+  const relatedOrderCount = Math.max(1, Math.min(18, Math.floor(Number(p.stock_qty || 0) / 8) + (seed % 5) + 1))
+  const baseSales = Math.max(1, Math.floor(Number(p.stock_qty || 0) * 0.9))
+  const totalSales = Math.max(relatedOrderCount, baseSales + (seed % 17))
+
+  const createdTs = parseDateTimeToTimestamp(p.created_at)
+  const updatedTs = parseDateTimeToTimestamp(p.updated_at)
+  const baseTs = updatedTs || createdTs
+  const offsetDays = (seed % 12) + 1
+  const recentOrderTs = baseTs ? Math.max(createdTs || 0, baseTs - offsetDays * 24 * 3600 * 1000) : 0
+  const lastOrderedAt = recentOrderTs ? formatTimestampToDateTime(recentOrderTs) : p.updated_at || p.created_at || '-'
   return { relatedOrderCount, totalSales, lastOrderedAt }
 })
 
@@ -528,6 +539,18 @@ const parseDateTimeToTimestamp = (value?: string): number => {
   return Number.isNaN(time) ? 0 : time
 }
 
+// 将时间戳格式化为 yyyy-MM-dd HH:mm:ss
+const formatTimestampToDateTime = (value: number): string => {
+  const d = new Date(value)
+  const y = d.getFullYear()
+  const m = `${d.getMonth() + 1}`.padStart(2, '0')
+  const day = `${d.getDate()}`.padStart(2, '0')
+  const hh = `${d.getHours()}`.padStart(2, '0')
+  const mm = `${d.getMinutes()}`.padStart(2, '0')
+  const ss = `${d.getSeconds()}`.padStart(2, '0')
+  return `${y}-${m}-${day} ${hh}:${mm}:${ss}`
+}
+
 // 重置新增/编辑表单，避免状态串扰。
 const resetForm = () => {
   editingId.value = null
@@ -620,12 +643,35 @@ const fetchList = async () => {
   }
 }
 
-// 校验商品编码唯一性：当前为前端请求演示，后端仍会做最终校验。
-const checkCodeUnique = async (code: string, currentId?: number) => {
-  const res = await productListApi({ keyword: code.trim(), page: 1, page_size: 100 })
-  if (res.data.code !== 0) return true
-  const list = (res.data?.data?.list || []) as ProductItem[]
-  return !list.some((item) => item.code === code.trim() && item.id !== (currentId || 0))
+// 拉取商品全量数据：用于前端演示场景下的编码唯一性校验。
+const fetchAllProductsForValidation = async (): Promise<ProductItem[]> => {
+  const allRows: ProductItem[] = []
+  let page = 1
+  const pageSize = 100
+  let finished = false
+
+  while (!finished) {
+    const res = await productListApi({ keyword: '', category: '', status: '', page, page_size: pageSize })
+    if (res.data.code !== 0) break
+    const list = (res.data?.data?.list || []) as ProductItem[]
+    allRows.push(...list)
+    if (list.length < pageSize || page >= 30) {
+      finished = true
+    } else {
+      page += 1
+    }
+  }
+  return allRows
+}
+
+// 商品编码唯一性校验（演示版）：前端全量比对，编辑时排除自身。
+// 说明：正式项目应由后端提供唯一校验接口，或在保存接口中进行强约束兜底。
+const validateProductCodeUniqueness = async (code: string, currentId?: number) => {
+  const normalizedCode = code.trim()
+  if (!normalizedCode) return true
+
+  const products = await fetchAllProductsForValidation()
+  return !products.some((item) => item.code?.trim() === normalizedCode && item.id !== (currentId || 0))
 }
 
 // 执行搜索并重置到第一页。
@@ -788,19 +834,35 @@ const handleBatchStatus = async (status: 'enabled' | 'disabled') => {
   if (!checkedRows.value.length) return
 
   let successCount = 0
+  let failedCount = 0
+  let skippedCount = 0
   for (const row of checkedRows.value) {
-    if (row.status === status) continue
+    if (row.status === status) {
+      skippedCount += 1
+      continue
+    }
     try {
       const res = await updateProduct(row, { status })
       if (res.data.code === 0) {
         successCount += 1
+      } else {
+        failedCount += 1
       }
     } catch (_error) {
       // 单条失败继续处理其它条目
+      failedCount += 1
     }
   }
 
-  message.success(`${status === 'enabled' ? '批量上架' : '批量下架'}完成，成功 ${successCount} 条`)
+  const actionLabel = status === 'enabled' ? '批量上架' : '批量下架'
+  const resultMessage = `${actionLabel}完成：成功 ${successCount} 条，失败 ${failedCount} 条，跳过 ${skippedCount} 条`
+  if (successCount > 0) {
+    message.success(resultMessage)
+  } else if (skippedCount > 0 && failedCount === 0) {
+    message.info(resultMessage)
+  } else {
+    message.warning(resultMessage)
+  }
   await fetchList()
 }
 
@@ -809,19 +871,30 @@ const handleBatchDelete = async () => {
   if (!checkedRowKeys.value.length) return
 
   let successCount = 0
+  let failedCount = 0
   for (const id of checkedRowKeys.value) {
     try {
       const res = await productDeleteApi(id)
       if (res.data.code === 0) {
         successCount += 1
+      } else {
+        failedCount += 1
       }
     } catch (_error) {
       // 单条失败继续处理其它条目
+      failedCount += 1
     }
   }
 
   checkedRowKeys.value = []
-  message.success(`批量删除完成，成功 ${successCount} 条`)
+  const resultMessage = `批量删除完成：成功 ${successCount} 条，失败 ${failedCount} 条`
+  if (failedCount === 0) {
+    message.success(resultMessage)
+  } else if (successCount > 0) {
+    message.warning(resultMessage)
+  } else {
+    message.error(resultMessage)
+  }
   await fetchList()
 }
 
@@ -833,7 +906,7 @@ const handleSubmit = async () => {
     return
   }
 
-  const codeUnique = await checkCodeUnique(formModel.code, editingId.value || undefined)
+  const codeUnique = await validateProductCodeUniqueness(formModel.code, editingId.value || undefined)
   if (!codeUnique) {
     message.warning('商品编码已存在，请更换后重试')
     return
