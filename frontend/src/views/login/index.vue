@@ -15,7 +15,7 @@
 </template>
 
 <script setup lang="ts">
-// 登录页面：用于用户身份校验并写入登录态。
+// 登录页面：用于用户身份校验并写入 access/refresh 双令牌登录态。
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { NButton, NCard, NForm, NFormItem, NInput, type FormInst, type FormRules, useMessage } from 'naive-ui'
@@ -44,8 +44,24 @@ const handleLogin = async () => {
   try {
     const res = await loginApi({ username: form.username, password: form.password })
     if (res.data.code === 0) {
-      const { token, username, role, permissions } = res.data.data
-      authStore.setAuth(token, username, role, permissions || [])
+      const {
+        access_token,
+        refresh_token,
+        token_type,
+        expires_in,
+        username,
+        role,
+        permissions
+      } = res.data.data
+      authStore.setAuth(
+        access_token,
+        refresh_token,
+        token_type || 'Bearer',
+        expires_in || 0,
+        username,
+        role,
+        permissions || []
+      )
       message.success('登录成功')
       router.push('/dashboard')
     } else {
@@ -60,6 +76,7 @@ const handleLogin = async () => {
 </script>
 
 <style scoped>
+/* 登录页背景样式：用于提升面试演示观感。 */
 .login-page {
   width: 100%;
   height: 100%;
