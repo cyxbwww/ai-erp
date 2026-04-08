@@ -1,6 +1,9 @@
 ﻿<template>
   <div class="sidebar">
-    <div class="logo">系统菜单</div>
+    <div class="logo">
+      <div class="logo-mark" aria-hidden="true">ERP</div>
+      <div class="logo-text">系统菜单</div>
+    </div>
     <n-menu :value="activeKey" :options="menuOptions" @update:value="handleSelect" />
   </div>
 </template>
@@ -44,12 +47,33 @@ const handleSelect = (key: string) => {
   padding: 12px;
 }
 
-/* 菜单标题 */
+/* 菜单标题区域：展示 Logo 与标题。 */
 .logo {
-  height: 36px;
-  line-height: 36px;
-  text-align: center;
-  font-weight: 600;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
   margin-bottom: 12px;
+}
+
+/* 侧边栏 Logo 图形：用于强化系统品牌识别。 */
+.logo-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #18a058, #36ad6a);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 28px;
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+
+/* 菜单标题文字。 */
+.logo-text {
+  font-weight: 600;
+  color: #1f2329;
 }
 </style>

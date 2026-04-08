@@ -1,32 +1,98 @@
-﻿<template>
+<template>
   <div class="customer-detail-page">
     <n-card title="客户详情" :bordered="false">
       <template #header-extra>
         <n-space>
           <n-button :loading="aiAdviceLoading" @click="handleGenerateAdvice">AI 生成跟进建议</n-button>
           <n-button :loading="aiSummaryLoading" @click="handleGenerateSummary">AI 总结跟进记录</n-button>
+          <n-button @click="handleRefresh">刷新</n-button>
           <n-button tertiary @click="goBack">返回</n-button>
         </n-space>
       </template>
 
       <n-spin :show="detailLoading">
-        <n-descriptions v-if="detail" label-placement="left" bordered :column="2">
-          <n-descriptions-item label="客户编号">{{ detail.id }}</n-descriptions-item>
-          <n-descriptions-item label="客户名称">{{ detail.name }}</n-descriptions-item>
-          <n-descriptions-item label="联系人">{{ detail.contact_name || '-' }}</n-descriptions-item>
-          <n-descriptions-item label="负责人">{{ detail.owner_name || '-' }}</n-descriptions-item>
-          <n-descriptions-item label="手机号">{{ detail.phone }}</n-descriptions-item>
-          <n-descriptions-item label="邮箱">{{ detail.email || '-' }}</n-descriptions-item>
-          <n-descriptions-item label="公司">{{ detail.company || '-' }}</n-descriptions-item>
-          <n-descriptions-item label="等级">{{ getCustomerLevelLabel(detail.level) }}</n-descriptions-item>
-          <n-descriptions-item label="状态">{{ getCustomerStatusLabel(detail.status) }}</n-descriptions-item>
-          <n-descriptions-item label="来源">{{ getCustomerSourceLabel(detail.source) }}</n-descriptions-item>
-          <n-descriptions-item label="最近跟进时间">{{ detail.last_follow_at || '-' }}</n-descriptions-item>
-          <n-descriptions-item label="创建时间">{{ detail.created_at }}</n-descriptions-item>
-          <n-descriptions-item label="更新时间">{{ detail.updated_at }}</n-descriptions-item>
-          <n-descriptions-item label="备注" :span="2">{{ detail.remark || '-' }}</n-descriptions-item>
-        </n-descriptions>
+        <template v-if="detail">
+          <n-grid :cols="24" :x-gap="12" :y-gap="12" class="overview-grid">
+            <n-gi :span="6">
+              <n-card size="small" title="客户等级">
+                <n-tag :type="getCustomerLevelTagType(detail.level)">{{ getCustomerLevelLabel(detail.level) }}</n-tag>
+              </n-card>
+            </n-gi>
+            <n-gi :span="6">
+              <n-card size="small" title="跟进状态">
+                <n-tag :type="getCustomerStatusTagType(detail.status)">{{ getCustomerStatusLabel(detail.status) }}</n-tag>
+              </n-card>
+            </n-gi>
+            <n-gi :span="6">
+              <n-card size="small" title="最近跟进时间">
+                <div class="overview-text">{{ detail.last_follow_at || '-' }}</div>
+              </n-card>
+            </n-gi>
+            <n-gi :span="3">
+              <n-card size="small" title="跟进次数">
+                <n-statistic :value="followCountValue" />
+              </n-card>
+            </n-gi>
+            <n-gi :span="3">
+              <n-card size="small" title="重点客户">
+                <n-tag :type="isKeyCustomer ? 'warning' : 'default'">{{ isKeyCustomer ? '是' : '否' }}</n-tag>
+              </n-card>
+            </n-gi>
+          </n-grid>
+
+          <n-descriptions label-placement="left" bordered :column="2">
+            <n-descriptions-item label="客户编号">{{ detail.id }}</n-descriptions-item>
+            <n-descriptions-item label="客户名称">{{ detail.name }}</n-descriptions-item>
+            <n-descriptions-item label="联系人">{{ detail.contact_name || '-' }}</n-descriptions-item>
+            <n-descriptions-item label="负责人">{{ detail.owner_name || '-' }}</n-descriptions-item>
+            <n-descriptions-item label="手机号">{{ detail.phone }}</n-descriptions-item>
+            <n-descriptions-item label="邮箱">{{ detail.email || '-' }}</n-descriptions-item>
+            <n-descriptions-item label="公司">{{ detail.company || '-' }}</n-descriptions-item>
+            <n-descriptions-item label="来源">{{ getCustomerSourceLabel(detail.source) }}</n-descriptions-item>
+            <n-descriptions-item label="创建时间">{{ detail.created_at }}</n-descriptions-item>
+            <n-descriptions-item label="更新时间">{{ detail.updated_at }}</n-descriptions-item>
+            <n-descriptions-item label="备注" :span="2">{{ detail.remark || '-' }}</n-descriptions-item>
+          </n-descriptions>
+        </template>
         <n-empty v-else description="暂无客户信息" />
+      </n-spin>
+    </n-card>
+
+    <n-card title="客户关联订单" :bordered="false">
+      <template #header-extra>
+        <n-tag size="small" type="info">轻量联动展示</n-tag>
+      </template>
+
+      <n-spin :show="relatedOrderLoading">
+        <n-grid :cols="24" :x-gap="12" :y-gap="12" class="order-overview-grid">
+          <n-gi :span="6">
+            <n-card size="small" title="关联订单数">
+              <div class="summary-text">{{ relatedOrderSummary.count }}</div>
+            </n-card>
+          </n-gi>
+          <n-gi :span="6">
+            <n-card size="small" title="累计消费金额">
+              <div class="summary-text">¥{{ Number(relatedOrderSummary.totalAmount || 0).toFixed(2) }}</div>
+            </n-card>
+          </n-gi>
+          <n-gi :span="6">
+            <n-card size="small" title="最近下单时间">
+              <div class="overview-text">{{ relatedOrderSummary.latestOrderAt || '-' }}</div>
+            </n-card>
+          </n-gi>
+          <n-gi :span="6">
+            <n-card size="small" title="已完成订单数">
+              <div class="summary-text">{{ relatedOrderSummary.completedCount }}</div>
+            </n-card>
+          </n-gi>
+        </n-grid>
+
+        <n-data-table
+          :columns="relatedOrderColumns"
+          :data="recentRelatedOrders"
+          :pagination="false"
+          :locale="{ emptyText: '暂无关联订单' }"
+        />
       </n-spin>
     </n-card>
 
@@ -52,7 +118,7 @@
       </template>
 
       <n-spin :show="followLoading">
-        <n-empty v-if="!followList.length" description="暂无跟进记录" />
+        <n-empty v-if="!followList.length" description="暂无跟进记录，点击右上角新增跟进记录" />
         <n-timeline v-else>
           <n-timeline-item v-for="item in followList" :key="item.id" :time="safeText(item.created_at)" type="info">
             <div class="timeline-card">
@@ -74,6 +140,7 @@
                 </n-space>
               </div>
 
+              <div class="timeline-line"><span class="line-label">跟进时间：</span>{{ safeText(item.created_at) }}</div>
               <div class="timeline-line"><span class="line-label">跟进内容：</span>{{ safeText(item.content) }}</div>
               <div class="timeline-line"><span class="line-label">跟进结果：</span>{{ safeText(item.result) }}</div>
               <div class="timeline-line"><span class="line-label">下次跟进时间：</span>{{ safeText(item.next_follow_time) }}</div>
@@ -98,66 +165,96 @@
     <div ref="aiPanelsRef" class="ai-panels">
       <n-card title="AI 跟进建议" :bordered="true" class="ai-panel-card">
         <template #header-extra>
-          <n-button :loading="aiAdviceLoading" @click="handleGenerateAdvice">重新生成</n-button>
+          <n-space size="small" align="center">
+            <n-tag size="small" :type="aiAdviceResult ? 'success' : 'default'">{{ aiAdviceResult ? '已生成' : '未生成' }}</n-tag>
+            <n-button size="tiny" :loading="aiAdviceLoading" @click="handleGenerateAdvice">重新生成</n-button>
+            <n-button size="tiny" :disabled="!aiAdviceResult" @click="handleCopyAdvice">复制结果</n-button>
+          </n-space>
         </template>
         <n-spin :show="aiAdviceLoading">
+          <div class="ai-meta-row">分析时间：{{ aiAdviceGeneratedAt || '-' }}</div>
           <n-empty v-if="!aiAdviceResult" description="暂无 AI 跟进建议，请点击重新生成" />
           <n-space v-else vertical :size="14">
             <div class="ai-row">
-              <span class="ai-label">客户意向：</span>
-              <n-tag :type="getIntentTagType(aiAdviceResult.intent_level.code)">
-                {{ aiAdviceResult.intent_level.label }}
-              </n-tag>
+              <span class="ai-label">客户状态判断：</span>
+              <span class="ai-value">{{ adviceStatusJudgement }}</span>
             </div>
             <div class="ai-row">
-              <span class="ai-label">当前关注点：</span>
-              <span class="ai-value">{{ aiAdviceResult.current_focus || '-' }}</span>
-            </div>
-            <div class="ai-row">
-              <span class="ai-label">下一步建议：</span>
+              <span class="ai-label">推荐下一步动作：</span>
             </div>
             <ul class="ai-list">
               <li v-for="(item, index) in aiAdviceResult.next_step_advice" :key="`advice-${index}`">{{ item }}</li>
             </ul>
             <div class="ai-row">
+              <span class="ai-label">推荐跟进时间：</span>
+              <span class="ai-value">{{ aiAdviceResult.suggested_next_follow_time || '-' }}</span>
+            </div>
+            <div class="ai-row">
               <span class="ai-label">推荐沟通话术：</span>
             </div>
             <div class="ai-talk-track">{{ aiAdviceResult.recommended_talk_track || '-' }}</div>
             <div class="ai-row">
-              <span class="ai-label">建议下次跟进时间：</span>
-              <span class="ai-value">{{ aiAdviceResult.suggested_next_follow_time || '-' }}</span>
+              <span class="ai-label">风险提醒：</span>
             </div>
+            <ul class="ai-list">
+              <li v-for="(item, index) in adviceRiskWarnings" :key="`advice-risk-${index}`">{{ item }}</li>
+            </ul>
           </n-space>
         </n-spin>
       </n-card>
 
       <n-card title="AI 跟进总结" :bordered="true" class="ai-panel-card">
         <template #header-extra>
-          <n-button :loading="aiSummaryLoading" @click="handleGenerateSummary">重新生成</n-button>
+          <n-space size="small" align="center">
+            <n-tag size="small" :type="aiSummaryResult ? 'success' : 'default'">{{ aiSummaryResult ? '已生成' : '未生成' }}</n-tag>
+            <n-button size="tiny" :loading="aiSummaryLoading" @click="handleGenerateSummary">重新生成</n-button>
+            <n-button size="tiny" :disabled="!aiSummaryResult" @click="handleCopySummary">复制结果</n-button>
+          </n-space>
         </template>
         <n-spin :show="aiSummaryLoading">
+          <div class="ai-meta-row">分析时间：{{ aiSummaryGeneratedAt || '-' }}</div>
           <n-empty v-if="!aiSummaryResult" description="暂无 AI 跟进总结，请点击重新生成" />
           <n-space v-else vertical :size="14">
             <div class="ai-row">
-              <span class="ai-label">当前进展：</span>
-              <span class="ai-value">{{ aiSummaryResult.current_progress || '-' }}</span>
-            </div>
-            <div class="ai-row">
-              <span class="ai-label">历史沟通重点：</span>
+              <span class="ai-label">历史跟进摘要：</span>
             </div>
             <ul class="ai-list">
               <li v-for="(item, index) in aiSummaryResult.history_key_points" :key="`point-${index}`">{{ item }}</li>
             </ul>
             <div class="ai-row">
-              <span class="ai-label">潜在风险：</span>
+              <span class="ai-label">客户关注点：</span>
+              <span class="ai-value">{{ aiAdviceResult?.current_focus || '暂无数据' }}</span>
+            </div>
+            <div class="ai-row">
+              <span class="ai-label">成交可能性判断：</span>
+              <span class="ai-value">{{ dealProbabilityText }}</span>
+            </div>
+            <div class="ai-row">
+              <span class="ai-label">当前阻塞点：</span>
             </div>
             <ul class="ai-list">
               <li v-for="(item, index) in aiSummaryResult.potential_risks" :key="`risk-${index}`">{{ item }}</li>
+            </ul>
+            <div class="ai-row">
+              <span class="ai-label">后续建议：</span>
+            </div>
+            <ul class="ai-list">
+              <li v-for="(item, index) in summaryFollowUpAdvice" :key="`summary-advice-${index}`">{{ item }}</li>
             </ul>
           </n-space>
         </n-spin>
       </n-card>
     </div>
+
+    <n-card title="操作记录" :bordered="false">
+      <n-data-table
+        :columns="operationLogColumns"
+        :data="operationLogs"
+        :pagination="false"
+        :locale="{ emptyText: '暂无操作记录' }"
+        :row-key="(row: OperationLogItem) => `${row.type}-${row.time}-${row.content}`"
+      />
+    </n-card>
 
     <n-modal v-model:show="followModalVisible" preset="card" :title="followModalTitle" style="width: 680px">
       <n-form ref="followFormRef" :model="followForm" :rules="followRules" label-placement="left" label-width="100">
@@ -194,18 +291,21 @@
 </template>
 
 <script setup lang="ts">
-// 客户详情页：展示客户基本信息、跟进记录，并提供 AI 跟进分析能力。
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+// 客户详情页：增强客户概览、跟进闭环、AI 结构化结果和订单联动展示。
+import { computed, h, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   NButton,
   NCard,
+  NDataTable,
   NDatePicker,
   NDescriptions,
   NDescriptionsItem,
   NEmpty,
   NForm,
   NFormItemGi,
+  NGi,
+  NGrid,
   NInput,
   NModal,
   NPagination,
@@ -213,10 +313,12 @@ import {
   NSelect,
   NSpace,
   NSpin,
+  NStatistic,
   NTag,
   NTimeline,
   NTimelineItem,
   useMessage,
+  type DataTableColumns,
   type FormInst,
   type FormRules
 } from 'naive-ui'
@@ -234,14 +336,37 @@ import {
   type CustomerFollowRecordPayload,
   type CustomerItem
 } from '@/api/customer'
+import { orderListApi, type OrderListItem } from '@/api/order'
 import {
   FOLLOW_TYPE_OPTIONS,
   getCustomerLevelLabel,
+  getCustomerLevelTagType,
   getCustomerSourceLabel,
   getCustomerStatusLabel,
+  getCustomerStatusTagType,
   getFollowTypeLabel,
-  getFollowTypeTagType
+  getFollowTypeTagType,
+  getOrderStatusLabel,
+  getOrderStatusTagType
 } from '@/constants/enums'
+
+type OperationLogItem = {
+  type: string
+  content: string
+  operator: string
+  time: string
+}
+
+// 客户详情页本地持久化结构：按客户维度保存 AI 结果与操作记录。
+type CustomerDetailPersistedState = {
+  aiAdviceResult: CustomerAIFollowAdvice | null
+  aiSummaryResult: CustomerAIFollowSummary | null
+  aiAdviceGeneratedAt: string
+  aiSummaryGeneratedAt: string
+  operationLogs: OperationLogItem[]
+}
+
+const CUSTOMER_DETAIL_STORAGE_KEY = 'ai_erp_customer_detail_persist_v1'
 
 const route = useRoute()
 const router = useRouter()
@@ -253,12 +378,35 @@ const followLoading = ref(false)
 const followSubmitLoading = ref(false)
 const aiAdviceLoading = ref(false)
 const aiSummaryLoading = ref(false)
+const relatedOrderLoading = ref(false)
 
 // 客户详情与跟进记录列表数据
 const detail = ref<CustomerItem | null>(null)
 const followList = ref<CustomerFollowRecordItem[]>([])
 const aiAdviceResult = ref<CustomerAIFollowAdvice | null>(null)
 const aiSummaryResult = ref<CustomerAIFollowSummary | null>(null)
+const aiAdviceGeneratedAt = ref('')
+const aiSummaryGeneratedAt = ref('')
+
+// 关联订单与操作记录
+const relatedOrders = ref<OrderListItem[]>([])
+const operationLogs = ref<OperationLogItem[]>([])
+
+// 读取本地持久化映射。
+const getPersistedMap = (): Record<number, CustomerDetailPersistedState> => {
+  try {
+    const raw = localStorage.getItem(CUSTOMER_DETAIL_STORAGE_KEY)
+    if (!raw) return {}
+    return JSON.parse(raw) as Record<number, CustomerDetailPersistedState>
+  } catch (_error) {
+    return {}
+  }
+}
+
+// 写入本地持久化映射。
+const setPersistedMap = (map: Record<number, CustomerDetailPersistedState>) => {
+  localStorage.setItem(CUSTOMER_DETAIL_STORAGE_KEY, JSON.stringify(map))
+}
 
 // 跟进记录表单与弹窗状态
 const followFormRef = ref<FormInst | null>(null)
@@ -299,19 +447,135 @@ const followRules: FormRules = {
 
 const followModalTitle = computed(() => (editingFollowId.value ? '编辑跟进记录' : '新增跟进记录'))
 const customerId = computed(() => Number(route.params.id) || 0)
+// 跟进次数展示：优先使用接口总数，缺失时回退当前列表长度。
+const followCountValue = computed(() => Number(followPagination.total || 0) || followList.value.length || 0)
 
-// 将空字符串和 null 统一展示为 '-'。
+// 重点客户判断：VIP 与战略客户视为重点客户。
+const isKeyCustomer = computed(() => detail.value?.level === 'vip' || detail.value?.level === 'strategic')
+
+// 关联订单统计信息。
+const relatedOrderSummary = computed(() => {
+  const list = relatedOrders.value
+  const totalAmount = list.reduce((sum, item) => sum + Number(item.total_amount || 0), 0)
+  const completedCount = list.filter((item) => item.status === 'completed').length
+  const latestOrderAt = list.length ? list[0].created_at : ''
+  return {
+    count: list.length,
+    totalAmount,
+    completedCount,
+    latestOrderAt
+  }
+})
+
+const recentRelatedOrders = computed(() => relatedOrders.value.slice(0, 5))
+
+const adviceStatusJudgement = computed(() => {
+  const intent = aiAdviceResult.value?.intent_level?.label || '中意向'
+  const status = detail.value ? getCustomerStatusLabel(detail.value.status) : '-'
+  return `当前客户处于“${status}”，AI 判断意向等级为“${intent}”。`
+})
+
+const adviceRiskWarnings = computed(() => {
+  if (aiSummaryResult.value?.potential_risks?.length) return aiSummaryResult.value.potential_risks
+  const intentCode = aiAdviceResult.value?.intent_level?.code
+  if (intentCode === 'high') return ['风险可控，建议持续推进采购与决策流程。']
+  if (intentCode === 'low') return ['客户意向偏低，需防止沟通中断或需求降级。']
+  return ['当前信息量有限，建议补充一次需求澄清会议后再评估风险。']
+})
+
+const dealProbabilityText = computed(() => {
+  const code = aiAdviceResult.value?.intent_level?.code
+  if (code === 'high') return '较高（建议推进方案评审与商务确认）'
+  if (code === 'low') return '较低（建议先重新确认预算与需求优先级）'
+  return '中等（建议补齐关键决策信息后推进）'
+})
+
+const summaryFollowUpAdvice = computed(() => {
+  if (aiAdviceResult.value?.next_step_advice?.length) return aiAdviceResult.value.next_step_advice
+  return ['建议先安排一次需求澄清沟通，明确预算、决策人与上线时间。']
+})
+
+const relatedOrderColumns: DataTableColumns<OrderListItem> = [
+  { title: '订单编号', key: 'order_no', minWidth: 180 },
+  {
+    title: '状态',
+    key: 'status',
+    width: 110,
+    render: (row) => h(NTag, { size: 'small', type: getOrderStatusTagType(row.status) }, { default: () => getOrderStatusLabel(row.status) })
+  },
+  {
+    title: '金额',
+    key: 'total_amount',
+    width: 120,
+    render: (row) => `¥${Number(row.total_amount || 0).toFixed(2)}`
+  },
+  { title: '下单时间', key: 'created_at', minWidth: 160 },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 90,
+    render: (row) =>
+      h(
+        NButton,
+        { size: 'small', tertiary: true, type: 'primary', onClick: () => router.push(`/order/detail/${row.id}`) },
+        { default: () => '查看' }
+      )
+  }
+]
+
+const operationLogColumns: DataTableColumns<OperationLogItem> = [
+  { title: '操作类型', key: 'type', width: 120 },
+  { title: '操作内容', key: 'content', minWidth: 240 },
+  { title: '操作人', key: 'operator', width: 120 },
+  { title: '操作时间', key: 'time', width: 180 }
+]
+
+// 保存当前客户详情页可持久化数据。
+const persistCurrentCustomerDetailState = () => {
+  if (!customerId.value) return
+  const map = getPersistedMap()
+  map[customerId.value] = {
+    aiAdviceResult: aiAdviceResult.value,
+    aiSummaryResult: aiSummaryResult.value,
+    aiAdviceGeneratedAt: aiAdviceGeneratedAt.value,
+    aiSummaryGeneratedAt: aiSummaryGeneratedAt.value,
+    operationLogs: operationLogs.value
+  }
+  setPersistedMap(map)
+}
+
+// 按客户编号恢复持久化数据（刷新后回显）。
+const restorePersistedCustomerDetailState = () => {
+  if (!customerId.value) return
+  const map = getPersistedMap()
+  const persisted = map[customerId.value]
+  if (!persisted) return
+
+  aiAdviceResult.value = persisted.aiAdviceResult || null
+  aiSummaryResult.value = persisted.aiSummaryResult || null
+  aiAdviceGeneratedAt.value = persisted.aiAdviceGeneratedAt || ''
+  aiSummaryGeneratedAt.value = persisted.aiSummaryGeneratedAt || ''
+  operationLogs.value = Array.isArray(persisted.operationLogs) ? persisted.operationLogs : []
+}
+
+// 追加操作日志，便于演示客户业务闭环。
+const appendOperationLog = (type: string, content: string) => {
+  operationLogs.value.unshift({
+    type,
+    content,
+    operator: '当前用户',
+    time: new Date().toLocaleString('zh-CN')
+  })
+  // 控制日志数量，避免本地存储无限增长。
+  operationLogs.value = operationLogs.value.slice(0, 200)
+  persistCurrentCustomerDetailState()
+}
+
+// 将空字符串和 null 统一展示为 '-'
 const safeText = (value?: string | null): string => {
   if (!value) return '-'
   const text = String(value).trim()
   return text || '-'
-}
-
-// 根据意向等级返回标签颜色，便于快速识别客户优先级。
-const getIntentTagType = (code: string) => {
-  if (code === 'high') return 'error'
-  if (code === 'medium') return 'warning'
-  return 'info'
 }
 
 // 将后端日期字符串解析为时间戳，供日期组件使用。
@@ -396,6 +660,41 @@ const fetchFollowList = async () => {
   }
 }
 
+// 获取客户关联订单信息：当前后端未提供按客户过滤接口，先以前端过滤演示。
+const fetchRelatedOrders = async () => {
+  if (!customerId.value) return
+
+  relatedOrderLoading.value = true
+  try {
+    const pageSize = 100
+    let page = 1
+    let finished = false
+    const orders: OrderListItem[] = []
+
+    while (!finished) {
+      const res = await orderListApi({ keyword: '', status: '', page, page_size: pageSize })
+      if (res.data.code !== 0) {
+        message.error(res.data.message || '关联订单加载失败')
+        break
+      }
+
+      const rows = (res.data?.data?.list || []) as OrderListItem[]
+      orders.push(...rows.filter((item) => item.customer_id === customerId.value))
+      if (rows.length < pageSize || page >= 10) {
+        finished = true
+      } else {
+        page += 1
+      }
+    }
+
+    relatedOrders.value = orders.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+  } catch (_error) {
+    message.error('关联订单请求失败')
+  } finally {
+    relatedOrderLoading.value = false
+  }
+}
+
 const handleFollowSearch = async () => {
   followPagination.page = 1
   await fetchFollowList()
@@ -448,6 +747,7 @@ const handleSubmitFollow = async () => {
     }
 
     message.success(editingFollowId.value ? '更新跟进记录成功' : '新增跟进记录成功')
+    appendOperationLog('跟进记录', editingFollowId.value ? '编辑了一条跟进记录' : '新增了一条跟进记录')
     followModalVisible.value = false
     await fetchFollowList()
     await fetchDetail()
@@ -468,6 +768,7 @@ const handleDeleteFollow = async (id: number) => {
     }
 
     message.success('删除跟进记录成功')
+    appendOperationLog('跟进记录', '删除了一条跟进记录')
     if (followList.value.length === 1 && followPagination.page > 1) {
       followPagination.page -= 1
     }
@@ -475,6 +776,70 @@ const handleDeleteFollow = async (id: number) => {
     await fetchDetail()
   } catch (_error) {
     message.error('删除跟进记录请求失败')
+  }
+}
+
+// 构建 AI 建议复制文本。
+const buildAdviceCopyText = () => {
+  if (!aiAdviceResult.value) return ''
+  return [
+    '【AI 跟进建议】',
+    `分析时间：${aiAdviceGeneratedAt.value || '-'}`,
+    `客户状态判断：${adviceStatusJudgement.value}`,
+    `推荐跟进时间：${aiAdviceResult.value.suggested_next_follow_time || '-'}`,
+    '推荐下一步动作：',
+    ...(aiAdviceResult.value.next_step_advice || []).map((item, idx) => `${idx + 1}. ${item}`),
+    '推荐沟通话术：',
+    aiAdviceResult.value.recommended_talk_track || '-',
+    '风险提醒：',
+    ...adviceRiskWarnings.value.map((item, idx) => `${idx + 1}. ${item}`)
+  ].join('\n')
+}
+
+// 构建 AI 总结复制文本。
+const buildSummaryCopyText = () => {
+  if (!aiSummaryResult.value) return ''
+  return [
+    '【AI 跟进总结】',
+    `分析时间：${aiSummaryGeneratedAt.value || '-'}`,
+    '历史跟进摘要：',
+    ...(aiSummaryResult.value.history_key_points || []).map((item, idx) => `${idx + 1}. ${item}`),
+    `客户关注点：${aiAdviceResult.value?.current_focus || '暂无数据'}`,
+    `成交可能性判断：${dealProbabilityText.value}`,
+    '当前阻塞点：',
+    ...(aiSummaryResult.value.potential_risks || []).map((item, idx) => `${idx + 1}. ${item}`),
+    '后续建议：',
+    ...summaryFollowUpAdvice.value.map((item, idx) => `${idx + 1}. ${item}`)
+  ].join('\n')
+}
+
+// 复制 AI 建议。
+const handleCopyAdvice = async () => {
+  const text = buildAdviceCopyText()
+  if (!text) {
+    message.warning('暂无可复制的 AI 建议')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(text)
+    message.success('AI 建议已复制')
+  } catch (_error) {
+    message.error('复制失败，请手动复制')
+  }
+}
+
+// 复制 AI 总结。
+const handleCopySummary = async () => {
+  const text = buildSummaryCopyText()
+  if (!text) {
+    message.warning('暂无可复制的 AI 总结')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(text)
+    message.success('AI 总结已复制')
+  } catch (_error) {
+    message.error('复制失败，请手动复制')
   }
 }
 
@@ -492,6 +857,8 @@ const handleGenerateAdvice = async () => {
       return
     }
     aiAdviceResult.value = res.data.data
+    aiAdviceGeneratedAt.value = new Date().toLocaleString('zh-CN')
+    appendOperationLog('AI', '生成了 AI 跟进建议')
     // 生成完成后滚动到 AI 结果区域，便于用户直接查看内容。
     await nextTick()
     aiPanelsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -517,6 +884,8 @@ const handleGenerateSummary = async () => {
       return
     }
     aiSummaryResult.value = res.data.data
+    aiSummaryGeneratedAt.value = new Date().toLocaleString('zh-CN')
+    appendOperationLog('AI', '生成了 AI 跟进总结')
     // 生成完成后滚动到 AI 结果区域，便于用户直接查看内容。
     await nextTick()
     aiPanelsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -532,9 +901,23 @@ const goBack = () => {
   router.push('/customer')
 }
 
+const handleRefresh = async () => {
+  await fetchDetail()
+  await fetchFollowList()
+  await fetchRelatedOrders()
+  message.success('客户详情已刷新')
+}
+
 onMounted(async () => {
   await fetchDetail()
   await fetchFollowList()
+  await fetchRelatedOrders()
+  restorePersistedCustomerDetailState()
+
+  // 支持从客户列表页“新增跟进”按钮直达详情并自动打开弹窗。
+  if (route.query.action === 'create-follow') {
+    openCreateFollow()
+  }
 })
 </script>
 
@@ -543,6 +926,43 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.overview-grid {
+  margin-bottom: 12px;
+}
+
+.overview-grid :deep(.n-card) {
+  height: 100%;
+}
+
+.overview-grid :deep(.n-card__content) {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+}
+
+.overview-text {
+  line-height: 34px;
+}
+
+.order-overview-grid {
+  margin-bottom: 12px;
+}
+
+.order-overview-grid :deep(.n-card) {
+  height: 100%;
+}
+
+.order-overview-grid :deep(.n-card__content) {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+}
+
+.summary-text {
+  line-height: 24px;
+  font-size: 28px;
 }
 
 .timeline-card {
@@ -585,6 +1005,9 @@ onMounted(async () => {
 .ai-panels {
   display: flex;
   gap: 16px;
+  /* 与下方“操作记录”卡片内容区对齐 */
+  padding: 0 16px;
+  box-sizing: border-box;
 }
 
 .ai-panels > * {
@@ -595,6 +1018,12 @@ onMounted(async () => {
 .ai-panel-card {
   border: 1px solid #d9e1ec;
   border-radius: 10px;
+}
+
+.ai-meta-row {
+  margin-bottom: 8px;
+  color: #999;
+  font-size: 12px;
 }
 
 .ai-row {

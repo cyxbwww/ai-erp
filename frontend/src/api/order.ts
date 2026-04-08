@@ -28,9 +28,50 @@ export interface OrderListItem {
   updated_at: string
 }
 
+// 订单支付信息类型
+export interface OrderPaymentInfo {
+  method?: string
+  status?: string
+  transaction_no?: string
+  paid_at?: string
+}
+
+// 订单发货信息类型
+export interface OrderShippingInfo {
+  status?: string
+  company?: string
+  tracking_no?: string
+  shipped_at?: string
+}
+
+// 订单收货信息类型
+export interface OrderReceiverInfo {
+  receiver_name?: string
+  receiver_phone?: string
+  receiver_address?: string
+  receive_status?: string
+}
+
+// 订单操作记录类型
+export interface OrderOperationLog {
+  id?: number
+  action_type: string
+  content: string
+  operator: string
+  operated_at: string
+  remark?: string
+}
+
 // 订单详情类型
 export interface OrderDetail extends Omit<OrderListItem, 'item_count'> {
   items: OrderItem[]
+  // 以下字段为详情页扩展字段，后端可按需返回
+  discount_amount?: number
+  paid_amount?: number
+  payment_info?: OrderPaymentInfo
+  shipping_info?: OrderShippingInfo
+  receiver_info?: OrderReceiverInfo
+  operation_logs?: OrderOperationLog[]
 }
 
 // 订单列表查询参数
@@ -110,4 +151,3 @@ export const orderDeleteApi = (id: number) => {
 export const orderAIAnalysisApi = (id: number, payload: OrderAIAnalysisPayload) => {
   return http.post(`/api/order/${id}/ai-analysis`, payload)
 }
-

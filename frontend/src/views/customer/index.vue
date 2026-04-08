@@ -1,13 +1,13 @@
-﻿<template>
+<template>
   <div class="customer-page">
     <n-card title="客户管理" :bordered="false">
       <div class="search-area">
-        <n-form class="search-form" :model="searchForm" label-placement="left" label-width="110">
+        <n-form class="search-form" :model="searchForm" label-placement="left" label-width="100">
           <n-grid :cols="24" :x-gap="12" :y-gap="10">
-            <n-form-item-gi :span="8" label="关键词">
+            <n-form-item-gi :span="7" label="关键词">
               <n-input
                 v-model:value="searchForm.keyword"
-                placeholder="客户名称/联系人/手机号/邮箱/公司"
+                placeholder="客户名称/联系人/手机号"
                 clearable
                 @keyup.enter="handleSearch"
               />
@@ -21,27 +21,31 @@
             <n-form-item-gi :span="4" label="客户来源">
               <n-select v-model:value="searchForm.source" :options="sourceOptions" clearable />
             </n-form-item-gi>
-            <n-form-item-gi :span="4" label="负责人">
-              <n-input v-model:value="searchForm.owner_name" placeholder="请输入负责人" clearable @keyup.enter="handleSearch" />
-            </n-form-item-gi>
-            <n-form-item-gi :span="8" label="创建时间">
-              <n-date-picker v-model:value="searchForm.createdRange" type="daterange" clearable style="width: 100%" />
-            </n-form-item-gi>
-            <n-form-item-gi :span="8" label="最近跟进时间">
-              <n-date-picker v-model:value="searchForm.followRange" type="daterange" clearable style="width: 100%" />
-            </n-form-item-gi>
-            <n-form-item-gi :span="8">
+            <n-form-item-gi :span="5">
               <n-space justify="end" style="width: 100%">
                 <n-button type="primary" @click="handleSearch">搜索</n-button>
                 <n-button @click="handleReset">重置</n-button>
               </n-space>
+            </n-form-item-gi>
+
+            <n-form-item-gi :span="8" label="负责人">
+              <n-input v-model:value="searchForm.owner_name" placeholder="请输入负责人" clearable @keyup.enter="handleSearch" />
+            </n-form-item-gi>
+            <n-form-item-gi :span="8" label="创建时间范围">
+              <n-date-picker v-model:value="searchForm.createdRange" type="daterange" clearable style="width: 100%" />
+            </n-form-item-gi>
+            <n-form-item-gi :span="8" label="最近跟进时间">
+              <n-date-picker v-model:value="searchForm.followRange" type="daterange" clearable style="width: 100%" />
             </n-form-item-gi>
           </n-grid>
         </n-form>
       </div>
 
       <div class="action-area">
-        <n-button type="primary" @click="openCreate">新增客户</n-button>
+        <n-space>
+          <n-button type="primary" @click="openCreate">新增客户</n-button>
+          <n-button @click="handleRefresh">刷新</n-button>
+        </n-space>
       </div>
 
       <n-data-table
@@ -49,6 +53,7 @@
         :data="tableData"
         :loading="tableLoading"
         :row-key="(row: CustomerItem) => row.id"
+        :locale="{ emptyText: '暂无客户数据，请调整筛选条件后重试' }"
         remote
       />
 
@@ -65,8 +70,9 @@
       </div>
     </n-card>
 
-    <n-modal v-model:show="modalVisible" preset="card" :title="modalTitle" style="width: 760px">
+    <n-modal v-model:show="modalVisible" preset="card" :title="modalTitle" style="width: 820px">
       <n-form ref="formRef" :model="formModel" :rules="rules" label-placement="left" label-width="100">
+        <n-divider title-placement="left">基础信息</n-divider>
         <n-grid :cols="2" :x-gap="12">
           <n-form-item-gi label="客户名称" path="name">
             <n-input v-model:value="formModel.name" placeholder="请输入客户名称" />
@@ -80,9 +86,13 @@
           <n-form-item-gi label="邮箱" path="email">
             <n-input v-model:value="formModel.email" placeholder="请输入邮箱" />
           </n-form-item-gi>
-          <n-form-item-gi label="公司" path="company">
-            <n-input v-model:value="formModel.company" placeholder="请输入公司名" />
+          <n-form-item-gi label="公司" path="company" :span="2">
+            <n-input v-model:value="formModel.company" placeholder="请输入公司名称" />
           </n-form-item-gi>
+        </n-grid>
+
+        <n-divider title-placement="left">业务信息</n-divider>
+        <n-grid :cols="2" :x-gap="12">
           <n-form-item-gi label="负责人" path="owner_name">
             <n-input v-model:value="formModel.owner_name" placeholder="请输入负责人" />
           </n-form-item-gi>
@@ -95,18 +105,23 @@
           <n-form-item-gi label="客户来源" path="source">
             <n-select v-model:value="formModel.source" :options="sourceOptions" />
           </n-form-item-gi>
-          <n-form-item-gi label="最近跟进时间" path="last_follow_at">
-            <n-date-picker v-model:value="lastFollowAtValue" type="datetime" clearable style="width: 100%" />
-          </n-form-item-gi>
-          <n-form-item-gi span="2" label="备注" path="remark">
-            <n-input v-model:value="formModel.remark" type="textarea" :rows="3" placeholder="请输入备注" />
+          <n-form-item-gi label="最近跟进时间" :span="2">
+            <n-input :value="formModel.last_follow_at || '-'" readonly />
+            <div class="field-tip">最近跟进时间建议由“跟进记录”自动更新，当前表单仅展示。</div>
           </n-form-item-gi>
         </n-grid>
+
+        <n-divider title-placement="left">备注信息</n-divider>
+        <n-form-item label="备注" path="remark">
+          <n-input v-model:value="formModel.remark" type="textarea" :rows="3" placeholder="请输入备注（最多 500 字）" />
+        </n-form-item>
       </n-form>
       <template #footer>
         <n-space justify="end">
           <n-button @click="modalVisible = false">取消</n-button>
-          <n-button type="primary" :loading="submitLoading" @click="handleSubmit">保存</n-button>
+          <n-button type="primary" :loading="submitLoading" @click="handleSubmit">
+            {{ editingId ? '保存修改' : '创建客户' }}
+          </n-button>
         </n-space>
       </template>
     </n-modal>
@@ -114,7 +129,7 @@
 </template>
 
 <script setup lang="ts">
-// 客户管理列表页：提供客户搜索、分页、新增、编辑、删除等功能。
+// 客户管理列表页：提供 CRM 常用筛选、客户维护、跟进入口与状态展示能力。
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
@@ -122,7 +137,9 @@ import {
   NCard,
   NDataTable,
   NDatePicker,
+  NDivider,
   NForm,
+  NFormItem,
   NFormItemGi,
   NGrid,
   NInput,
@@ -132,10 +149,12 @@ import {
   NSelect,
   NSpace,
   NTag,
+  NTooltip,
   useMessage,
   type DataTableColumns,
   type FormInst,
-  type FormRules
+  type FormRules,
+  type FormItemRule
 } from 'naive-ui'
 import {
   customerCreateApi,
@@ -161,15 +180,14 @@ const message = useMessage()
 const router = useRouter()
 const formRef = ref<FormInst | null>(null)
 
-// 列表与提交的加载状态
+// 列表与提交加载状态
 const tableLoading = ref(false)
 const submitLoading = ref(false)
 // 弹窗显示状态与编辑中的客户编号
 const modalVisible = ref(false)
 const editingId = ref<number | null>(null)
-const lastFollowAtValue = ref<number | null>(null)
 
-// 搜索表单状态
+// 搜索表单状态：第一行常用筛选，第二行扩展筛选
 const searchForm = reactive({
   keyword: '',
   level: null as string | null,
@@ -206,85 +224,88 @@ const formModel = reactive<CustomerFormPayload>({
   remark: ''
 })
 
+// 手机号校验：支持中国大陆 11 位手机号
+const validatePhone = (_rule: FormItemRule, value: string): true | Error => {
+  if (!value?.trim()) return new Error('请输入手机号')
+  if (!/^1\d{10}$/.test(value.trim())) return new Error('请输入正确的 11 位手机号')
+  return true
+}
+
+// 邮箱校验：允许为空，输入时校验格式
+const validateEmail = (_rule: FormItemRule, value?: string): true | Error => {
+  if (!value) return true
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return new Error('邮箱格式不正确')
+  return true
+}
+
 const rules: FormRules = {
-  name: [{ required: true, message: '请输入客户名称', trigger: 'blur' }],
-  phone: [{ required: true, message: '请输入手机号', trigger: 'blur' }],
-  email: [{ type: 'email', message: '邮箱格式不正确', trigger: ['blur', 'input'] }]
+  name: [{ required: true, message: '请输入客户名称', trigger: ['blur', 'input'] }],
+  contact_name: [{ required: true, message: '请输入联系人', trigger: ['blur', 'input'] }],
+  phone: [{ required: true, validator: validatePhone, trigger: ['blur', 'input'] }],
+  email: [{ validator: validateEmail, trigger: ['blur', 'input'] }],
+  owner_name: [{ required: true, message: '请输入负责人', trigger: ['blur', 'input'] }],
+  remark: [{ max: 500, message: '备注最多 500 字', trigger: ['blur', 'input'] }]
 }
 
 const modalTitle = computed(() => (editingId.value ? '编辑客户' : '新增客户'))
 
+const renderNameCell = (row: CustomerItem) => {
+  const content = row.company ? `${row.name}（${row.company}）` : row.name
+  return h(
+    NTooltip,
+    { trigger: 'hover' },
+    {
+      trigger: () => h('div', { class: 'text-ellipsis' }, content),
+      default: () => content
+    }
+  )
+}
+
+const renderContactCell = (row: CustomerItem) => {
+  const text = `${row.contact_name || '-'} / ${row.phone || '-'}`
+  return h('div', { class: 'text-ellipsis' }, text)
+}
+
 const columns: DataTableColumns<CustomerItem> = [
-  { title: '客户编号', key: 'id', width: 90 },
-  { title: '客户名称', key: 'name', minWidth: 120 },
-  { title: '联系人', key: 'contact_name', minWidth: 100 },
-  { title: '手机号', key: 'phone', minWidth: 120 },
-  { title: '邮箱', key: 'email', minWidth: 180 },
-  { title: '公司', key: 'company', minWidth: 140 },
+  { title: '客户名称', key: 'name', minWidth: 200, render: (row) => renderNameCell(row) },
+  { title: '联系人', key: 'contact_name', minWidth: 180, render: (row) => renderContactCell(row) },
+  { title: '手机号', key: 'phone', minWidth: 130 },
   { title: '负责人', key: 'owner_name', minWidth: 100 },
   {
-    title: '等级',
+    title: '客户等级',
     key: 'level',
-    width: 110,
-    render: (row) =>
-      h(
-        NTag,
-        { type: getCustomerLevelTagType(row.level), size: 'small' },
-        { default: () => getCustomerLevelLabel(row.level) }
-      )
+    width: 100,
+    render: (row) => h(NTag, { type: getCustomerLevelTagType(row.level), size: 'small' }, { default: () => getCustomerLevelLabel(row.level) })
   },
   {
     title: '跟进状态',
     key: 'status',
-    width: 110,
-    render: (row) =>
-      h(
-        NTag,
-        { type: getCustomerStatusTagType(row.status), size: 'small' },
-        { default: () => getCustomerStatusLabel(row.status) }
-      )
+    width: 100,
+    render: (row) => h(NTag, { type: getCustomerStatusTagType(row.status), size: 'small' }, { default: () => getCustomerStatusLabel(row.status) })
   },
   {
     title: '来源',
     key: 'source',
-    width: 110,
-    render: (row) =>
-      h(
-        NTag,
-        { type: getCustomerSourceTagType(row.source), size: 'small' },
-        { default: () => getCustomerSourceLabel(row.source) }
-      )
+    width: 100,
+    render: (row) => h(NTag, { type: getCustomerSourceTagType(row.source), size: 'small' }, { default: () => getCustomerSourceLabel(row.source) })
   },
-  { title: '最近跟进时间', key: 'last_follow_at', minWidth: 160 },
-  { title: '创建时间', key: 'created_at', minWidth: 160 },
+  { title: '最近跟进时间', key: 'last_follow_at', minWidth: 160, render: (row) => row.last_follow_at || '-' },
   {
     title: '操作',
     key: 'actions',
-    width: 220,
+    width: 300,
     fixed: 'right',
     render: (row) =>
-      h(NSpace, {}, {
+      h(NSpace, { size: 'small' }, {
         default: () => [
-          h(
-            NButton,
-            { size: 'small', tertiary: true, onClick: () => goDetail(row.id) },
-            { default: () => '详情' }
-          ),
-          h(
-            NButton,
-            { size: 'small', tertiary: true, type: 'primary', onClick: () => openEdit(row) },
-            { default: () => '编辑' }
-          ),
+          h(NButton, { size: 'small', tertiary: true, onClick: () => goDetail(row.id) }, { default: () => '详情' }),
+          h(NButton, { size: 'small', tertiary: true, type: 'primary', onClick: () => openEdit(row) }, { default: () => '编辑' }),
+          h(NButton, { size: 'small', tertiary: true, type: 'info', onClick: () => goAddFollow(row.id) }, { default: () => '新增跟进' }),
           h(
             NPopconfirm,
             { onPositiveClick: () => handleDelete(row.id) },
             {
-              trigger: () =>
-                h(
-                  NButton,
-                  { size: 'small', tertiary: true, type: 'error' },
-                  { default: () => '删除' }
-                ),
+              trigger: () => h(NButton, { size: 'small', tertiary: true, type: 'error' }, { default: () => '删除' }),
               default: () => '确认删除该客户吗？'
             }
           )
@@ -314,7 +335,6 @@ const resetForm = () => {
   formModel.source = 'manual'
   formModel.owner_name = ''
   formModel.last_follow_at = ''
-  lastFollowAtValue.value = null
   formModel.remark = ''
 }
 
@@ -373,6 +393,12 @@ const handleReset = async () => {
   await fetchList()
 }
 
+// 刷新列表，保持当前筛选和分页
+const handleRefresh = async () => {
+  await fetchList()
+  message.success('列表已刷新')
+}
+
 // 切换分页大小后重新加载数据
 const handlePageSizeChange = async (size: number) => {
   pagination.pageSize = size
@@ -399,16 +425,19 @@ const openEdit = (row: CustomerItem) => {
   formModel.source = row.source
   formModel.owner_name = row.owner_name
   formModel.last_follow_at = row.last_follow_at || ''
-  lastFollowAtValue.value = parseDateTimeToTimestamp(row.last_follow_at)
   formModel.remark = row.remark
   modalVisible.value = true
 }
 
 // 提交新增/编辑请求
 const handleSubmit = async () => {
-  await formRef.value?.validate()
-  submitLoading.value = true
+  try {
+    await formRef.value?.validate()
+  } catch (_error) {
+    return
+  }
 
+  submitLoading.value = true
   try {
     const payload: CustomerFormPayload = {
       name: formModel.name,
@@ -420,20 +449,19 @@ const handleSubmit = async () => {
       status: formModel.status,
       source: formModel.source,
       owner_name: formModel.owner_name,
-      last_follow_at: formatTimestampToDateTime(lastFollowAtValue.value) || '',
+      // 当前字段先保留兼容后端，后续应由跟进记录自动维护。
+      last_follow_at: formModel.last_follow_at || '',
       remark: formModel.remark
     }
 
-    const res = editingId.value
-      ? await customerUpdateApi({ ...payload, id: editingId.value })
-      : await customerCreateApi(payload)
+    const res = editingId.value ? await customerUpdateApi({ ...payload, id: editingId.value }) : await customerCreateApi(payload)
 
     if (res.data.code !== 0) {
       message.error(res.data.message || '保存失败')
       return
     }
 
-    message.success(editingId.value ? '更新成功' : '创建成功')
+    message.success(editingId.value ? '客户更新成功' : '客户创建成功')
     modalVisible.value = false
     await fetchList()
   } catch (_error) {
@@ -465,25 +493,9 @@ const goDetail = (id: number) => {
   router.push(`/customer/detail/${id}`)
 }
 
-// 解析 yyyy-MM-dd HH:mm:ss 为时间戳，无法解析时返回 null，避免日期组件报错。
-const parseDateTimeToTimestamp = (value?: string | null): number | null => {
-  if (!value) return null
-  const normalized = value.replace(' ', 'T')
-  const timestamp = new Date(normalized).getTime()
-  return Number.isNaN(timestamp) ? null : timestamp
-}
-
-// 将时间戳转换为 yyyy-MM-dd HH:mm:ss，供后端接口使用。
-const formatTimestampToDateTime = (value: number | null): string | null => {
-  if (!value) return null
-  const d = new Date(value)
-  const y = d.getFullYear()
-  const m = `${d.getMonth() + 1}`.padStart(2, '0')
-  const day = `${d.getDate()}`.padStart(2, '0')
-  const hh = `${d.getHours()}`.padStart(2, '0')
-  const mm = `${d.getMinutes()}`.padStart(2, '0')
-  const ss = `${d.getSeconds()}`.padStart(2, '0')
-  return `${y}-${m}-${day} ${hh}:${mm}:${ss}`
+// 从列表直接进入详情并打开“新增跟进”弹窗，形成业务闭环。
+const goAddFollow = (id: number) => {
+  router.push({ path: `/customer/detail/${id}`, query: { action: 'create-follow' } })
 }
 
 onMounted(() => {
@@ -534,5 +546,18 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.text-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field-tip {
+  margin-top: 6px;
+  color: #999;
+  font-size: 12px;
+  line-height: 1.4;
 }
 </style>

@@ -94,6 +94,7 @@ export interface CustomerAIFollowAdvice {
   next_step_advice: string[]
   recommended_talk_track: string
   suggested_next_follow_time: string
+  ai_source?: 'deepseek' | 'fallback'
 }
 
 // AI 跟进总结返回结构
@@ -101,6 +102,7 @@ export interface CustomerAIFollowSummary {
   current_progress: string
   history_key_points: string[]
   potential_risks: string[]
+  ai_source?: 'deepseek' | 'fallback'
 }
 
 // 获取客户列表（搜索 + 分页）
