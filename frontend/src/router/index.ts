@@ -39,6 +39,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '商品管理', menuKey: 'product', permission: 'product:view' }
       },
       {
+        path: 'knowledge-base',
+        name: 'KnowledgeBase',
+        component: () => import('@/views/knowledge-base/index.vue'),
+        meta: { title: '知识库助手', menuKey: 'knowledge-base', permission: 'dashboard:view' }
+      },
+      {
         path: 'order',
         name: 'Order',
         component: () => import('@/views/order/index.vue'),

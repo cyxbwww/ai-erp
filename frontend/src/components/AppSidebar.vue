@@ -22,13 +22,15 @@ const menuOptions: MenuOption[] = [
   { label: '销售看板', key: '/dashboard' },
   { label: '客户管理', key: '/customer' },
   { label: '商品管理', key: '/product' },
-  { label: '订单管理', key: '/order' }
+  { label: '订单管理', key: '/order' },
+  { label: '知识库助手', key: '/knowledge-base' }
 ]
 
 // 根据当前路由计算菜单激活项。
 const activeKey = computed(() => {
   if (route.path.startsWith('/customer')) return '/customer'
   if (route.path.startsWith('/product')) return '/product'
+  if (route.path.startsWith('/knowledge-base')) return '/knowledge-base'
   if (route.path.startsWith('/order')) return '/order'
   if (route.path.startsWith('/dashboard')) return '/dashboard'
   return route.path
