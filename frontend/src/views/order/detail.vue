@@ -120,7 +120,7 @@
                   {{ getAIStatus(card.type).label }}
                 </n-tag>
                 <n-button size="tiny" :loading="aiLoadingMap[card.type]" @click="handleAIAnalyze(card.type)">
-                  重新生成
+                  {{ getAIGenerateButtonText(card.type) }}
                 </n-button>
                 <n-button size="tiny" :disabled="!aiResults[card.type]" @click="handleCopyAIResult(card.type)">
                   复制结果
@@ -184,7 +184,7 @@
     <n-card title="操作记录" :bordered="false">
       <n-data-table
         :columns="operationColumns"
-        :data="operationLogs"
+        :data="displayOperationLogs"
         :pagination="false"
         :row-key="(row: OrderOperationLog) => `${row.operated_at}-${row.content}`"
       />
@@ -234,6 +234,18 @@ type OrderTransitionStatus = 'confirmed' | 'completed' | 'cancelled'
 type AIType = 'analysis' | 'risk' | 'advice'
 type NaiveTagType = 'default' | 'primary' | 'info' | 'success' | 'warning' | 'error'
 
+// 订单详情页本地持久化结构：按订单维度保存 AI 结果与前端追加日志。
+type OrderDetailPersistedState = {
+  aiResults: Record<AIType, OrderAIAnalysisResult | null>
+  aiGeneratedAt: Record<AIType, string>
+  localOperationLogs: OrderOperationLog[]
+}
+
+const ORDER_DETAIL_STORAGE_KEY = 'ai_erp_order_detail_persist_v1'
+const FALLBACK_LOGISTICS_COMPANY = '顺丰速运'
+const FALLBACK_RECEIVER_PHONE = '13800000000'
+const FALLBACK_RECEIVER_ADDRESS = '上海市浦东新区张江高科技园区'
+
 const route = useRoute()
 const router = useRouter()
 const message = useMessage()
@@ -243,8 +255,9 @@ const pageLoading = ref(false)
 const statusUpdating = ref(false)
 // 订单详情数据
 const detailData = ref<OrderDetail | null>(null)
-// 操作记录数据：优先使用接口返回，缺失时回退 mock
-const operationLogs = ref<OrderOperationLog[]>([])
+// 操作记录数据：区分“接口/回退日志”与“前端追加日志”，避免来源混淆。
+const serverOperationLogs = ref<OrderOperationLog[]>([])
+const localOperationLogs = ref<OrderOperationLog[]>([])
 
 // 三类 AI 结果分别缓存，便于重复查看与复制
 const aiResults = reactive<{
@@ -267,6 +280,77 @@ const aiGeneratedAt = reactive<Record<AIType, string>>({
   analysis: '',
   risk: '',
   advice: ''
+})
+
+const orderId = computed(() => Number(route.params.id) || 0)
+
+// 读取本地持久化映射。
+const getPersistedMap = (): Record<number, OrderDetailPersistedState> => {
+  try {
+    const raw = localStorage.getItem(ORDER_DETAIL_STORAGE_KEY)
+    if (!raw) return {}
+    return JSON.parse(raw) as Record<number, OrderDetailPersistedState>
+  } catch (_error) {
+    return {}
+  }
+}
+
+// 写入本地持久化映射。
+const setPersistedMap = (map: Record<number, OrderDetailPersistedState>) => {
+  localStorage.setItem(ORDER_DETAIL_STORAGE_KEY, JSON.stringify(map))
+}
+
+// 持久化当前订单 AI 结果与前端追加日志。
+const persistCurrentOrderDetailState = () => {
+  if (!orderId.value) return
+  const map = getPersistedMap()
+  map[orderId.value] = {
+    aiResults: {
+      analysis: aiResults.analysis,
+      risk: aiResults.risk,
+      advice: aiResults.advice
+    },
+    aiGeneratedAt: {
+      analysis: aiGeneratedAt.analysis,
+      risk: aiGeneratedAt.risk,
+      advice: aiGeneratedAt.advice
+    },
+    localOperationLogs: localOperationLogs.value
+  }
+  setPersistedMap(map)
+}
+
+// 恢复当前订单本地持久化状态（刷新后回显）。
+const restorePersistedOrderDetailState = () => {
+  if (!orderId.value) return
+  const map = getPersistedMap()
+  const persisted = map[orderId.value]
+  if (!persisted) return
+
+  aiResults.analysis = persisted.aiResults?.analysis || null
+  aiResults.risk = persisted.aiResults?.risk || null
+  aiResults.advice = persisted.aiResults?.advice || null
+  aiGeneratedAt.analysis = persisted.aiGeneratedAt?.analysis || ''
+  aiGeneratedAt.risk = persisted.aiGeneratedAt?.risk || ''
+  aiGeneratedAt.advice = persisted.aiGeneratedAt?.advice || ''
+  localOperationLogs.value = Array.isArray(persisted.localOperationLogs) ? persisted.localOperationLogs : []
+}
+
+// 追加前端演示日志：用于记录详情页本地操作并持久化。
+const appendLocalOperationLog = (log: OrderOperationLog) => {
+  localOperationLogs.value.unshift(log)
+  localOperationLogs.value = localOperationLogs.value.slice(0, 200)
+  persistCurrentOrderDetailState()
+}
+
+// 展示日志：前端追加日志优先，其后展示接口/回退日志，并做轻量去重。
+const displayOperationLogs = computed<OrderOperationLog[]>(() => {
+  const map = new Map<string, OrderOperationLog>()
+  ;[...localOperationLogs.value, ...serverOperationLogs.value].forEach((log) => {
+    const key = `${log.action_type}-${log.operated_at}-${log.content}`
+    if (!map.has(key)) map.set(key, log)
+  })
+  return Array.from(map.values())
 })
 
 // AI 卡片配置：统一渲染标题与空状态文案
@@ -343,98 +427,84 @@ const statusSteps = computed<Array<{ title: string; description: string }>>(() =
   ]
 })
 
-// 支付信息：优先用后端返回，缺失时按订单状态回退 mock 数据
-const paymentInfo = computed<OrderPaymentInfo>(() => {
-  const data = detailData.value
-  if (!data) return {}
+// 统一构建演示回退展示，减少支付/发货/收货区块重复硬编码。
+const getOrderBaseTime = (data: OrderDetail) => data.updated_at || data.created_at || '-'
+const buildFallbackTransactionNo = (id: number) => `PAY-${id}`
+const buildFallbackTrackingNo = (id: number) => `SF${String(id).padStart(8, '0')}`
+
+// 支付信息回退构建器：后端字段缺失时用于演示展示，后续应由真实支付接口替换。
+const buildFallbackPaymentInfo = (data: OrderDetail): OrderPaymentInfo => {
   const runtime = getOrderRuntimeState(data.id)
-  if (data.payment_info) return data.payment_info
   if (runtime?.payment_status === 'paid') {
     return {
       method: '对公转账',
       status: '已支付',
-      transaction_no: `PAY-${data.id}`,
-      paid_at: runtime.payment_time || data.updated_at || data.created_at || '-'
+      transaction_no: buildFallbackTransactionNo(data.id),
+      paid_at: runtime.payment_time || getOrderBaseTime(data)
     }
   }
   if (runtime?.payment_status === 'closed') {
+    return { method: '未支付', status: '交易关闭', transaction_no: '-', paid_at: '-' }
+  }
+  if (data.status === 'completed') {
+    return { method: '对公转账', status: '已支付', transaction_no: buildFallbackTransactionNo(data.id), paid_at: getOrderBaseTime(data) }
+  }
+  if (data.status === 'confirmed') {
+    return { method: '对公转账', status: '待支付', transaction_no: '-', paid_at: '-' }
+  }
+  if (data.status === 'cancelled') {
+    return { method: '未支付', status: '交易关闭', transaction_no: '-', paid_at: '-' }
+  }
+  return { method: '未支付', status: '待支付', transaction_no: '-', paid_at: '-' }
+}
+
+// 发货信息回退构建器：后端字段缺失时用于演示展示，后续应由真实物流接口替换。
+const buildFallbackShippingInfo = (data: OrderDetail): OrderShippingInfo => {
+  const runtime = getOrderRuntimeState(data.id)
+  if (runtime?.shipping_status === 'shipped') {
     return {
-      method: '未支付',
-      status: '交易关闭',
-      transaction_no: '-',
-      paid_at: '-'
+      status: '已发货',
+      company: FALLBACK_LOGISTICS_COMPANY,
+      tracking_no: buildFallbackTrackingNo(data.id),
+      shipped_at: runtime.shipping_time || getOrderBaseTime(data)
     }
   }
-
   if (data.status === 'completed') {
     return {
-      method: '对公转账',
-      status: '已支付',
-      transaction_no: `PAY-${data.id}`,
-      paid_at: data.updated_at || data.created_at || '-'
+      status: '已发货',
+      company: FALLBACK_LOGISTICS_COMPANY,
+      tracking_no: buildFallbackTrackingNo(data.id),
+      shipped_at: getOrderBaseTime(data)
     }
   }
   if (data.status === 'confirmed') {
-    return {
-      method: '对公转账',
-      status: '待支付',
-      transaction_no: '-',
-      paid_at: '-'
-    }
+    return { status: '待发货', company: '-', tracking_no: '-', shipped_at: '-' }
   }
-  if (data.status === 'cancelled') {
-    return {
-      method: '未支付',
-      status: '交易关闭',
-      transaction_no: '-',
-      paid_at: '-'
-    }
-  }
-  return {
-    method: '未支付',
-    status: '待支付',
-    transaction_no: '-',
-    paid_at: '-'
-  }
+  return { status: '未发货', company: '-', tracking_no: '-', shipped_at: '-' }
+}
+
+// 收货信息回退构建器：后端字段缺失时用于演示展示，后续应由真实收货信息接口替换。
+const buildFallbackReceiverInfo = (data: OrderDetail): OrderReceiverInfo => ({
+  receiver_name: data.customer_name || '-',
+  receiver_phone: FALLBACK_RECEIVER_PHONE,
+  receiver_address: FALLBACK_RECEIVER_ADDRESS,
+  receive_status: data.status === 'completed' ? '已签收' : '待签收'
+})
+
+// 支付信息：优先用后端返回，缺失时按订单状态回退 mock 数据
+const paymentInfo = computed<OrderPaymentInfo>(() => {
+  const data = detailData.value
+  if (!data) return {}
+  if (data.payment_info) return data.payment_info
+  return buildFallbackPaymentInfo(data)
 })
 
 // 发货信息：优先用后端返回，缺失时按状态回退 mock 数据
 const shippingInfo = computed<OrderShippingInfo>(() => {
   const data = detailData.value
   if (!data) return {}
-  const runtime = getOrderRuntimeState(data.id)
   if (data.shipping_info) return data.shipping_info
-  if (runtime?.shipping_status === 'shipped') {
-    return {
-      status: '已发货',
-      company: '顺丰速运',
-      tracking_no: `SF${String(data.id).padStart(8, '0')}`,
-      shipped_at: runtime.shipping_time || data.updated_at || data.created_at || '-'
-    }
-  }
-
-  if (data.status === 'completed') {
-    return {
-      status: '已发货',
-      company: '顺丰速运',
-      tracking_no: `SF${String(data.id).padStart(8, '0')}`,
-      shipped_at: data.updated_at || data.created_at || '-'
-    }
-  }
-  if (data.status === 'confirmed') {
-    return {
-      status: '待发货',
-      company: '-',
-      tracking_no: '-',
-      shipped_at: '-'
-    }
-  }
-  return {
-    status: '未发货',
-    company: '-',
-    tracking_no: '-',
-    shipped_at: '-'
-  }
+  return buildFallbackShippingInfo(data)
 })
 
 // 收货信息：优先用后端返回，缺失时按状态回退 mock 数据
@@ -442,13 +512,7 @@ const receiverInfo = computed<OrderReceiverInfo>(() => {
   const data = detailData.value
   if (!data) return {}
   if (data.receiver_info) return data.receiver_info
-
-  return {
-    receiver_name: data.customer_name || '-',
-    receiver_phone: '13800000000',
-    receiver_address: '上海市浦东新区张江高科技园区',
-    receive_status: data.status === 'completed' ? '已签收' : '待签收'
-  }
+  return buildFallbackReceiverInfo(data)
 })
 
 // 订单汇总信息：缺失字段通过明细和总额推导
@@ -523,6 +587,14 @@ const getAIStatus = (type: AIType): { label: string; type: NaiveTagType } => {
   if (aiLoadingMap[type]) return { label: '生成中', type: 'info' }
   if (aiResults[type]) return { label: '已生成', type: 'success' }
   return { label: '未生成', type: 'default' }
+}
+
+// AI 卡片按钮文案：未生成按模块提示“生成xx”，已生成提示“重新生成”。
+const getAIGenerateButtonText = (type: AIType): string => {
+  if (aiResults[type]) return '重新生成'
+  if (type === 'analysis') return '生成分析'
+  if (type === 'risk') return '生成风险检测'
+  return '生成销售建议'
 }
 
 // 获取不同 AI 卡片的“要点”内容
@@ -607,22 +679,22 @@ const goEdit = () => {
 
 // 拉取订单详情数据
 const fetchDetail = async () => {
-  const id = Number(route.params.id) || 0
-  if (!id) {
+  if (!orderId.value) {
     message.error('订单编号无效')
     return
   }
 
   pageLoading.value = true
   try {
-    const res = await orderDetailApi(id)
+    const res = await orderDetailApi(orderId.value)
     if (res.data.code !== 0) {
       message.error(res.data.message || '订单详情加载失败')
       return
     }
     const detail = res.data.data as OrderDetail
     detailData.value = detail
-    operationLogs.value = detail.operation_logs?.length ? detail.operation_logs : buildMockOperationLogs(detail)
+    // 接口日志优先；缺失时回退演示日志。前端追加日志由 localOperationLogs 单独维护。
+    serverOperationLogs.value = detail.operation_logs?.length ? detail.operation_logs : buildMockOperationLogs(detail)
   } catch (_error) {
     message.error('订单详情请求失败')
   } finally {
@@ -632,12 +704,11 @@ const fetchDetail = async () => {
 
 // 执行状态流转并刷新当前详情
 const handleStatusTransition = async (targetStatus: OrderTransitionStatus) => {
-  const id = Number(route.params.id) || 0
-  if (!id) return
+  if (!orderId.value) return
 
   statusUpdating.value = true
   try {
-    const res = await orderStatusUpdateApi({ id, status: targetStatus })
+    const res = await orderStatusUpdateApi({ id: orderId.value, status: targetStatus })
     if (res.data.code !== 0) {
       message.error(res.data.message || '订单状态流转失败')
       return
@@ -646,12 +717,12 @@ const handleStatusTransition = async (targetStatus: OrderTransitionStatus) => {
     message.success('订单状态已更新')
     detailData.value = res.data.data
     if (targetStatus === 'cancelled') {
-      patchOrderRuntimeState(id, { payment_status: 'closed', shipping_status: 'unshipped' })
+      patchOrderRuntimeState(orderId.value, { payment_status: 'closed', shipping_status: 'unshipped' })
     }
     if (targetStatus === 'completed') {
-      patchOrderRuntimeState(id, { payment_status: 'paid', shipping_status: 'shipped' })
+      patchOrderRuntimeState(orderId.value, { payment_status: 'paid', shipping_status: 'shipped' })
     }
-    operationLogs.value.unshift({
+    appendLocalOperationLog({
       action_type: 'transition',
       content: `订单状态更新为${getOrderStatusLabel(targetStatus)}`,
       operator: '当前用户',
@@ -667,15 +738,14 @@ const handleStatusTransition = async (targetStatus: OrderTransitionStatus) => {
 
 // 调用订单 AI 分析接口，并将结果写入对应模块
 const handleAIAnalyze = async (analysisType: AIType) => {
-  const id = Number(route.params.id) || 0
-  if (!id) {
+  if (!orderId.value) {
     message.error('订单编号无效')
     return
   }
 
   aiLoadingMap[analysisType] = true
   try {
-    const res = await orderAIAnalysisApi(id, { analysis_type: analysisType })
+    const res = await orderAIAnalysisApi(orderId.value, { analysis_type: analysisType })
     if (res.data.code !== 0) {
       message.error(res.data.message || 'AI 分析失败')
       return
@@ -685,13 +755,13 @@ const handleAIAnalyze = async (analysisType: AIType) => {
     aiGeneratedAt[analysisType] = new Date().toLocaleString('zh-CN')
     if (analysisType === 'risk') {
       const riskCount = aiResults[analysisType]?.risks?.length || 0
-      patchOrderRuntimeState(id, {
+      patchOrderRuntimeState(orderId.value, {
         risk_level: riskCount >= 3 ? 'high' : riskCount >= 1 ? 'medium' : 'low',
         ai_analyzed: true,
         ai_analyzed_at: aiGeneratedAt[analysisType]
       })
     }
-    operationLogs.value.unshift({
+    appendLocalOperationLog({
       action_type: 'ai_analysis',
       content: `执行 AI ${analysisType === 'analysis' ? '订单分析' : analysisType === 'risk' ? '风险检测' : '销售建议'}`,
       operator: '当前用户',
@@ -706,8 +776,9 @@ const handleAIAnalyze = async (analysisType: AIType) => {
   }
 }
 
-onMounted(() => {
-  fetchDetail()
+onMounted(async () => {
+  await fetchDetail()
+  restorePersistedOrderDetailState()
 })
 </script>
 
