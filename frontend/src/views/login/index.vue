@@ -78,11 +78,22 @@ const handleLogin = async () => {
 <style scoped>
 /* 登录页背景样式：用于提升面试演示观感。 */
 .login-page {
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 24px 12px;
   background: linear-gradient(135deg, #f4f8ff, #eef3ff);
+}
+
+/* 登录卡片视觉收敛：避免在不同缩放下显得松散。 */
+.login-page :deep(.n-card) {
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(32, 45, 64, 0.08);
+}
+
+.login-page :deep(.n-card-header) {
+  padding-bottom: 8px;
 }
 </style>
