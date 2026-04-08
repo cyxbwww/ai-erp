@@ -167,13 +167,13 @@
         <template #header-extra>
           <n-space size="small" align="center">
             <n-tag size="small" :type="aiAdviceResult ? 'success' : 'default'">{{ aiAdviceResult ? '已生成' : '未生成' }}</n-tag>
-            <n-button size="tiny" :loading="aiAdviceLoading" @click="handleGenerateAdvice">重新生成</n-button>
+            <n-button size="tiny" :loading="aiAdviceLoading" @click="handleGenerateAdvice">{{ adviceGenerateButtonText }}</n-button>
             <n-button size="tiny" :disabled="!aiAdviceResult" @click="handleCopyAdvice">复制结果</n-button>
           </n-space>
         </template>
         <n-spin :show="aiAdviceLoading">
           <div class="ai-meta-row">分析时间：{{ aiAdviceGeneratedAt || '-' }}</div>
-          <n-empty v-if="!aiAdviceResult" description="暂无 AI 跟进建议，请点击重新生成" />
+          <n-empty v-if="!aiAdviceResult" description="暂无 AI 跟进建议，请点击生成建议" />
           <n-space v-else vertical :size="14">
             <div class="ai-row">
               <span class="ai-label">客户状态判断：</span>
@@ -183,7 +183,7 @@
               <span class="ai-label">推荐下一步动作：</span>
             </div>
             <ul class="ai-list">
-              <li v-for="(item, index) in aiAdviceResult.next_step_advice" :key="`advice-${index}`">{{ item }}</li>
+              <li v-for="(item, index) in adviceNextStepPoints" :key="`advice-${index}`">{{ item }}</li>
             </ul>
             <div class="ai-row">
               <span class="ai-label">推荐跟进时间：</span>
@@ -207,23 +207,23 @@
         <template #header-extra>
           <n-space size="small" align="center">
             <n-tag size="small" :type="aiSummaryResult ? 'success' : 'default'">{{ aiSummaryResult ? '已生成' : '未生成' }}</n-tag>
-            <n-button size="tiny" :loading="aiSummaryLoading" @click="handleGenerateSummary">重新生成</n-button>
+            <n-button size="tiny" :loading="aiSummaryLoading" @click="handleGenerateSummary">{{ summaryGenerateButtonText }}</n-button>
             <n-button size="tiny" :disabled="!aiSummaryResult" @click="handleCopySummary">复制结果</n-button>
           </n-space>
         </template>
         <n-spin :show="aiSummaryLoading">
           <div class="ai-meta-row">分析时间：{{ aiSummaryGeneratedAt || '-' }}</div>
-          <n-empty v-if="!aiSummaryResult" description="暂无 AI 跟进总结，请点击重新生成" />
+          <n-empty v-if="!aiSummaryResult" description="暂无 AI 跟进总结，请点击生成总结" />
           <n-space v-else vertical :size="14">
             <div class="ai-row">
               <span class="ai-label">历史跟进摘要：</span>
             </div>
             <ul class="ai-list">
-              <li v-for="(item, index) in aiSummaryResult.history_key_points" :key="`point-${index}`">{{ item }}</li>
+              <li v-for="(item, index) in summaryHistoryPoints" :key="`point-${index}`">{{ item }}</li>
             </ul>
             <div class="ai-row">
               <span class="ai-label">客户关注点：</span>
-              <span class="ai-value">{{ aiAdviceResult?.current_focus || '暂无数据' }}</span>
+              <span class="ai-value">{{ summaryCurrentFocus }}</span>
             </div>
             <div class="ai-row">
               <span class="ai-label">成交可能性判断：</span>
@@ -233,7 +233,7 @@
               <span class="ai-label">当前阻塞点：</span>
             </div>
             <ul class="ai-list">
-              <li v-for="(item, index) in aiSummaryResult.potential_risks" :key="`risk-${index}`">{{ item }}</li>
+              <li v-for="(item, index) in summaryRiskPoints" :key="`risk-${index}`">{{ item }}</li>
             </ul>
             <div class="ai-row">
               <span class="ai-label">后续建议：</span>
@@ -475,8 +475,40 @@ const adviceStatusJudgement = computed(() => {
   return `当前客户处于“${status}”，AI 判断意向等级为“${intent}”。`
 })
 
+// AI 按钮文案：未生成时提示“生成”，已生成时提示“重新生成”。
+const adviceGenerateButtonText = computed(() => (aiAdviceResult.value ? '重新生成' : '生成建议'))
+const summaryGenerateButtonText = computed(() => (aiSummaryResult.value ? '重新生成' : '生成总结'))
+
+// 建议区动作兜底，避免接口返回空数组时出现空白区域。
+const adviceNextStepPoints = computed(() => {
+  const points = aiAdviceResult.value?.next_step_advice || []
+  return points.length ? points : ['建议先补充关键决策信息，再推进下一步跟进动作。']
+})
+
+// 总结区历史摘要兜底：优先用总结结果，缺失时给出占位提示。
+const summaryHistoryPoints = computed(() => {
+  const points = aiSummaryResult.value?.history_key_points || []
+  return points.length ? points : ['暂无历史跟进摘要，建议先补充最近一次沟通记录。']
+})
+
+// 总结区阻塞点兜底：优先用总结结果中的潜在风险。
+const summaryRiskPoints = computed(() => {
+  const points = aiSummaryResult.value?.potential_risks || []
+  return points.length ? points : ['暂无明显阻塞点，可继续推进需求确认与商务沟通。']
+})
+const hasSummaryRiskData = computed(() => (aiSummaryResult.value?.potential_risks || []).length > 0)
+
+// 总结区客户关注点：优先使用总结 current_progress，再回退到建议中的 current_focus。
+const summaryCurrentFocus = computed(() => {
+  const fromSummary = aiSummaryResult.value?.current_progress?.trim()
+  if (fromSummary) return fromSummary
+  const fromAdvice = aiAdviceResult.value?.current_focus?.trim()
+  if (fromAdvice) return fromAdvice
+  return '暂无关注点数据'
+})
+
 const adviceRiskWarnings = computed(() => {
-  if (aiSummaryResult.value?.potential_risks?.length) return aiSummaryResult.value.potential_risks
+  if (hasSummaryRiskData.value) return aiSummaryResult.value?.potential_risks || []
   const intentCode = aiAdviceResult.value?.intent_level?.code
   if (intentCode === 'high') return ['风险可控，建议持续推进采购与决策流程。']
   if (intentCode === 'low') return ['客户意向偏低，需防止沟通中断或需求降级。']
@@ -484,6 +516,15 @@ const adviceRiskWarnings = computed(() => {
 })
 
 const dealProbabilityText = computed(() => {
+  // 总结优先：先根据总结内容粗略判断，再回退建议意向等级。
+  const progress = (aiSummaryResult.value?.current_progress || '').toLowerCase()
+  if (progress.includes('已下单') || progress.includes('推进') || progress.includes('意向高')) {
+    return '较高（建议推进方案评审与商务确认）'
+  }
+  if (progress.includes('观望') || progress.includes('暂停') || progress.includes('预算不足') || progress.includes('意向低')) {
+    return '较低（建议先重新确认预算与需求优先级）'
+  }
+
   const code = aiAdviceResult.value?.intent_level?.code
   if (code === 'high') return '较高（建议推进方案评审与商务确认）'
   if (code === 'low') return '较低（建议先重新确认预算与需求优先级）'
@@ -491,7 +532,14 @@ const dealProbabilityText = computed(() => {
 })
 
 const summaryFollowUpAdvice = computed(() => {
+  // 优先复用建议结果；若仅有总结结果，则按总结风险给出演示级建议。
   if (aiAdviceResult.value?.next_step_advice?.length) return aiAdviceResult.value.next_step_advice
+  if (hasSummaryRiskData.value) {
+    return [
+      '建议围绕当前阻塞点安排一次专项沟通，明确责任人与截止时间。',
+      '对高风险事项设置下一次跟进节点，并在 48 小时内复盘进展。'
+    ]
+  }
   return ['建议先安排一次需求澄清沟通，明确预算、决策人与上线时间。']
 })
 
@@ -558,7 +606,7 @@ const restorePersistedCustomerDetailState = () => {
   operationLogs.value = Array.isArray(persisted.operationLogs) ? persisted.operationLogs : []
 }
 
-// 追加操作日志，便于演示客户业务闭环。
+// 追加操作日志（演示版轻量审计）：统一记录关键操作并立即持久化。
 const appendOperationLog = (type: string, content: string) => {
   operationLogs.value.unshift({
     type,
@@ -788,7 +836,7 @@ const buildAdviceCopyText = () => {
     `客户状态判断：${adviceStatusJudgement.value}`,
     `推荐跟进时间：${aiAdviceResult.value.suggested_next_follow_time || '-'}`,
     '推荐下一步动作：',
-    ...(aiAdviceResult.value.next_step_advice || []).map((item, idx) => `${idx + 1}. ${item}`),
+    ...adviceNextStepPoints.value.map((item, idx) => `${idx + 1}. ${item}`),
     '推荐沟通话术：',
     aiAdviceResult.value.recommended_talk_track || '-',
     '风险提醒：',
@@ -803,11 +851,11 @@ const buildSummaryCopyText = () => {
     '【AI 跟进总结】',
     `分析时间：${aiSummaryGeneratedAt.value || '-'}`,
     '历史跟进摘要：',
-    ...(aiSummaryResult.value.history_key_points || []).map((item, idx) => `${idx + 1}. ${item}`),
-    `客户关注点：${aiAdviceResult.value?.current_focus || '暂无数据'}`,
+    ...summaryHistoryPoints.value.map((item, idx) => `${idx + 1}. ${item}`),
+    `客户关注点：${summaryCurrentFocus.value}`,
     `成交可能性判断：${dealProbabilityText.value}`,
     '当前阻塞点：',
-    ...(aiSummaryResult.value.potential_risks || []).map((item, idx) => `${idx + 1}. ${item}`),
+    ...summaryRiskPoints.value.map((item, idx) => `${idx + 1}. ${item}`),
     '后续建议：',
     ...summaryFollowUpAdvice.value.map((item, idx) => `${idx + 1}. ${item}`)
   ].join('\n')
@@ -905,6 +953,8 @@ const handleRefresh = async () => {
   await fetchDetail()
   await fetchFollowList()
   await fetchRelatedOrders()
+  // 刷新后显式恢复当前客户的本地持久化状态，避免展示态与缓存态不一致。
+  restorePersistedCustomerDetailState()
   message.success('客户详情已刷新')
 }
 
