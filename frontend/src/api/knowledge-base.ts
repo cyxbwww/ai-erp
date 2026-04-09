@@ -27,6 +27,7 @@ export interface KnowledgeAskResult {
   secondary_sources?: string[]
   retrieved_chunks: KnowledgeChunkItem[]
   index_backend: string
+  embedding_backend?: string
 }
 
 export interface KnowledgeDocumentItem {
@@ -35,12 +36,29 @@ export interface KnowledgeDocumentItem {
   updated_at: string
 }
 
+// 知识库索引状态：用于页面展示“索引健康状态/构建时间/索引体积”。
+export interface KnowledgeIndexInfo {
+  index_loaded: boolean
+  index_exists: boolean
+  metadata_exists: boolean
+  saved_at: string
+  document_count: number
+  chunk_count: number
+  index_size_bytes: number
+  index_backend: string
+  embedding_backend?: string
+}
+
 export const knowledgeAskApi = (payload: KnowledgeAskPayload) => {
   return http.post('/api/knowledge-base/ask', payload)
 }
 
 export const knowledgeDocumentsApi = () => {
   return http.get('/api/knowledge-base/documents')
+}
+
+export const knowledgeIndexInfoApi = () => {
+  return http.get('/api/knowledge-base/index-info')
 }
 
 export const knowledgeRebuildApi = () => {

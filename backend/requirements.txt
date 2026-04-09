@@ -5,6 +5,9 @@ pydantic==2.10.3
 pydantic-settings==2.7.0
 python-jose==3.3.0
 openai==1.108.1
+langchain==0.3.27
+langchain-community==0.3.27
 langchain-text-splitters==0.3.11
 faiss-cpu==1.11.0.post1
 scikit-learn==1.7.0
+pypdf==5.4.0

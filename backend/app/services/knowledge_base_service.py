@@ -1,48 +1,70 @@
-﻿"""知识库服务：提供文档加载、切分、向量检索与基于检索结果的回答生成。"""
+﻿"""知识库服务：基于 LangChain 实现文档加载、切分、检索与答案生成。"""
 
 from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime
+import json
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from langchain_community.document_loaders import PyPDFLoader, TextLoader
+from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sklearn.feature_extraction.text import HashingVectorizer
 
 from app.services.deepseek_service import DeepSeekService
 
-try:
-    import faiss  # type: ignore
 
-    HAS_FAISS = True
-except Exception:
-    faiss = None
-    HAS_FAISS = False
+class HashingEmbeddings(Embeddings):
+    """Hashing Embedding 适配器：将现有 HashingVectorizer 封装为 LangChain Embeddings。"""
 
-try:
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    def __init__(self) -> None:
+        # 使用字符 ngram 兼容中文语料；后续可替换为标准 embedding 模型。
+        self.vectorizer = HashingVectorizer(
+            n_features=1024,
+            alternate_sign=False,
+            norm=None,
+            analyzer='char',
+            ngram_range=(1, 2)
+        )
 
-    HAS_LANGCHAIN_SPLITTER = True
-except Exception:
-    RecursiveCharacterTextSplitter = None
-    HAS_LANGCHAIN_SPLITTER = False
+    @staticmethod
+    def _normalize(vectors: np.ndarray) -> np.ndarray:
+        """L2 归一化：使向量内积更接近余弦相似度。"""
+        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+        norms = np.where(norms == 0, 1.0, norms)
+        return (vectors / norms).astype(np.float32)
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """批量文本向量化。"""
+        matrix = self.vectorizer.transform(texts)
+        dense = matrix.toarray().astype(np.float32)
+        return self._normalize(dense).tolist()
+
+    def embed_query(self, text: str) -> list[float]:
+        """单条查询向量化。"""
+        return self.embed_documents([text])[0]
 
 
 class KnowledgeRAGService:
-    """知识库 RAG 服务：读取->切分->向量化->检索->生成。"""
+    """知识库 RAG 服务：LangChain Loader + Splitter + VectorStore + Retriever。"""
 
-    # 固定知识库目录：当前仅支持 .md / .txt。
     KNOWLEDGE_DIR = Path(__file__).resolve().parents[2] / 'knowledge_base'
-    SUPPORTED_SUFFIXES = {'.md', '.txt'}
+    # 索引持久化目录：保存 FAISS 索引与元数据，避免服务重启后重复重建。
+    INDEX_DIR = Path(__file__).resolve().parents[2] / 'knowledge_index'
+    INDEX_META_FILE = INDEX_DIR / 'meta.json'
+    SUPPORTED_SUFFIXES = {'.md', '.txt', '.pdf'}
 
-    # 运行时缓存：减少每次问答都重建索引的开销。
-    _vectorizer: HashingVectorizer | None = None
-    _index: Any = None
-    _vectors: np.ndarray | None = None
+    _vector_store: FAISS | None = None
+    _retriever: Any = None
     _chunks: list[dict[str, Any]] = []
     _documents: list[dict[str, Any]] = []
-    _index_backend: str = 'none'
+    _index_backend: str = 'langchain-faiss'
+    _embedding_backend: str = 'hashing-vectorizer'
 
     @staticmethod
     def _unique_keep_order(items: list[str]) -> list[str]:
@@ -58,81 +80,321 @@ class KnowledgeRAGService:
         return result
 
     @staticmethod
-    def _ensure_vectorizer() -> HashingVectorizer:
-        """初始化向量器：使用字符 ngram 以兼容中文语料。"""
-        if KnowledgeRAGService._vectorizer is None:
-            KnowledgeRAGService._vectorizer = HashingVectorizer(
-                n_features=1024,
-                alternate_sign=False,
-                norm=None,
-                analyzer='char',
-                ngram_range=(1, 2)
-            )
-        return KnowledgeRAGService._vectorizer
-
-    @staticmethod
-    def _normalize_vectors(vectors: np.ndarray) -> np.ndarray:
-        """L2 归一化向量，便于内积近似余弦相似度。"""
-        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
-        norms = np.where(norms == 0, 1.0, norms)
-        return (vectors / norms).astype(np.float32)
-
-    @staticmethod
-    def _embed_texts(texts: list[str]) -> np.ndarray:
-        """文本向量化：输出 float32 稠密向量。"""
-        vectorizer = KnowledgeRAGService._ensure_vectorizer()
-        matrix = vectorizer.transform(texts)
-        dense = matrix.toarray().astype(np.float32)
-        return KnowledgeRAGService._normalize_vectors(dense)
-
-    @staticmethod
-    def _load_documents() -> list[dict[str, Any]]:
-        """读取知识库目录文档并返回基础元数据。"""
+    def _scan_document_files() -> list[dict[str, Any]]:
+        """扫描知识库目录并返回文档元数据（用于文档列表展示）。"""
         root = KnowledgeRAGService.KNOWLEDGE_DIR
         root.mkdir(parents=True, exist_ok=True)
 
-        docs: list[dict[str, Any]] = []
+        files: list[dict[str, Any]] = []
         for path in sorted(root.rglob('*')):
             if not path.is_file() or path.suffix.lower() not in KnowledgeRAGService.SUPPORTED_SUFFIXES:
                 continue
-            text = path.read_text(encoding='utf-8', errors='ignore').strip()
-            if not text:
-                continue
             stat = path.stat()
-            docs.append(
+            files.append(
                 {
                     'source': str(path.relative_to(root)).replace('\\', '/'),
-                    'content': text,
                     'size': stat.st_size,
-                    'updated_at': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                    'updated_at': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                    'suffix': path.suffix.lower()
                 }
             )
-        return docs
+        return files
 
     @staticmethod
-    def _split_text(content: str) -> list[str]:
-        """文档切分：优先使用 LangChain；缺失时回退固定窗口切分。"""
-        # 适度减小片段长度，避免命中片段过长导致“依据说明”与原文高度重复。
-        chunk_size = 360
-        overlap = 60
+    def _load_documents_with_langchain(files: list[dict[str, Any]]) -> list[Document]:
+        """使用 LangChain Loader 加载 .md/.txt/.pdf 文档。"""
+        root = KnowledgeRAGService.KNOWLEDGE_DIR
+        loaded_docs: list[Document] = []
 
-        if HAS_LANGCHAIN_SPLITTER and RecursiveCharacterTextSplitter is not None:
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=chunk_size,
-                chunk_overlap=overlap,
-                separators=['\n\n', '\n', '。', '！', '？', '.', ' ']
-            )
-            chunks = [item.strip() for item in splitter.split_text(content) if item.strip()]
-            if chunks:
-                return chunks
+        for file_info in files:
+            source = str(file_info.get('source', ''))
+            suffix = str(file_info.get('suffix', '')).lower()
+            if not source:
+                continue
+            path = root / source
+            if not path.exists():
+                continue
 
-        step = max(chunk_size - overlap, 1)
-        chunks: list[str] = []
-        for i in range(0, len(content), step):
-            piece = content[i:i + chunk_size].strip()
-            if piece:
-                chunks.append(piece)
+            try:
+                if suffix in {'.md', '.txt'}:
+                    docs = TextLoader(str(path), autodetect_encoding=True).load()
+                elif suffix == '.pdf':
+                    docs = PyPDFLoader(str(path)).load()
+                else:
+                    docs = []
+            except Exception:
+                # 文本类文档回退到本地读取，保证索引构建稳定可用。
+                if suffix in {'.md', '.txt'}:
+                    try:
+                        text = path.read_text(encoding='utf-8', errors='ignore').strip()
+                        docs = [Document(page_content=text, metadata={'source': source})] if text else []
+                    except Exception:
+                        docs = []
+                else:
+                    # PDF 若加载失败暂时跳过，后续可接入更稳健的 OCR/PDF 解析链路。
+                    docs = []
+
+            for doc in docs:
+                content = (doc.page_content or '').strip()
+                if not content:
+                    continue
+                metadata = dict(doc.metadata or {})
+                metadata['source'] = source
+                doc.metadata = metadata
+                loaded_docs.append(doc)
+
+        return loaded_docs
+
+    @staticmethod
+    def _split_documents_with_langchain(documents: list[Document]) -> list[Document]:
+        """使用 LangChain TextSplitter 对文档进行切分。"""
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=360,
+            chunk_overlap=60,
+            separators=['\n\n', '\n', '。', '！', '？', '.', ' ']
+        )
+        chunks = splitter.split_documents(documents)
+
+        # 为每个 chunk 生成稳定 chunk_id，便于前端渲染与交互。
+        for idx, chunk in enumerate(chunks, start=1):
+            source = str(chunk.metadata.get('source', 'unknown'))
+            page = chunk.metadata.get('page')
+            page_tag = ''
+            if isinstance(page, int):
+                page_tag = f':p{page + 1}'
+            chunk.metadata['chunk_id'] = f'{source}{page_tag}#{idx}'
+
         return chunks
+
+    @staticmethod
+    def _save_index_metadata(
+        files: list[dict[str, Any]],
+        chunks: list[dict[str, Any]]
+    ) -> None:
+        """保存索引元数据：用于重启后恢复文档列表与片段基础信息。"""
+        KnowledgeRAGService.INDEX_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            'saved_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'documents': files,
+            'chunks': chunks,
+            'index_backend': KnowledgeRAGService._index_backend,
+            'embedding_backend': KnowledgeRAGService._embedding_backend
+        }
+        KnowledgeRAGService.INDEX_META_FILE.write_text(
+            json.dumps(payload, ensure_ascii=False),
+            encoding='utf-8'
+        )
+
+    @staticmethod
+    def _load_index_metadata() -> None:
+        """加载索引元数据：恢复文档列表与片段信息。"""
+        if not KnowledgeRAGService.INDEX_META_FILE.exists():
+            return
+        try:
+            payload = json.loads(KnowledgeRAGService.INDEX_META_FILE.read_text(encoding='utf-8'))
+            docs = payload.get('documents', [])
+            chunks = payload.get('chunks', [])
+            if isinstance(docs, list):
+                KnowledgeRAGService._documents = docs
+            if isinstance(chunks, list):
+                KnowledgeRAGService._chunks = chunks
+        except Exception:
+            # 元数据损坏不阻塞主流程，后续可通过 rebuild 重新生成。
+            pass
+
+    @staticmethod
+    def _load_persisted_index() -> bool:
+        """尝试从磁盘加载 FAISS 索引，成功返回 True。"""
+        index_file = KnowledgeRAGService.INDEX_DIR / 'index.faiss'
+        pkl_file = KnowledgeRAGService.INDEX_DIR / 'index.pkl'
+        if not index_file.exists() or not pkl_file.exists():
+            return False
+        try:
+            vector_store = FAISS.load_local(
+                str(KnowledgeRAGService.INDEX_DIR),
+                HashingEmbeddings(),
+                allow_dangerous_deserialization=True
+            )
+            KnowledgeRAGService._vector_store = vector_store
+            KnowledgeRAGService._retriever = vector_store.as_retriever(
+                search_type='similarity',
+                search_kwargs={'k': 4}
+            )
+            KnowledgeRAGService._load_index_metadata()
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def get_index_info() -> dict[str, Any]:
+        """获取索引状态信息：用于前端展示索引健康状态与构建时间。"""
+        index_file = KnowledgeRAGService.INDEX_DIR / 'index.faiss'
+        pkl_file = KnowledgeRAGService.INDEX_DIR / 'index.pkl'
+        meta_exists = KnowledgeRAGService.INDEX_META_FILE.exists()
+        index_exists = index_file.exists() and pkl_file.exists()
+        loaded = KnowledgeRAGService._vector_store is not None and KnowledgeRAGService._retriever is not None
+
+        documents_count = len(KnowledgeRAGService._documents)
+        chunks_count = len(KnowledgeRAGService._chunks)
+        saved_at = ''
+
+        if meta_exists:
+            try:
+                payload = json.loads(KnowledgeRAGService.INDEX_META_FILE.read_text(encoding='utf-8'))
+                saved_at = str(payload.get('saved_at', ''))
+                if not documents_count:
+                    docs = payload.get('documents', [])
+                    if isinstance(docs, list):
+                        documents_count = len(docs)
+                if not chunks_count:
+                    chunks = payload.get('chunks', [])
+                    if isinstance(chunks, list):
+                        chunks_count = len(chunks)
+            except Exception:
+                # 元数据异常时不抛错，返回当前可用状态。
+                pass
+
+        index_size_bytes = 0
+        if KnowledgeRAGService.INDEX_DIR.exists():
+            for path in KnowledgeRAGService.INDEX_DIR.rglob('*'):
+                if path.is_file():
+                    try:
+                        index_size_bytes += path.stat().st_size
+                    except OSError:
+                        continue
+
+        return {
+            'index_loaded': loaded,
+            'index_exists': index_exists,
+            'metadata_exists': meta_exists,
+            'saved_at': saved_at,
+            'document_count': documents_count,
+            'chunk_count': chunks_count,
+            'index_size_bytes': index_size_bytes,
+            'index_backend': KnowledgeRAGService._index_backend,
+            'embedding_backend': KnowledgeRAGService._embedding_backend
+        }
+
+    @staticmethod
+    def rebuild_index() -> dict[str, Any]:
+        """重建索引：LangChain 文档加载 -> 切分 -> FAISS 向量库。"""
+        files = KnowledgeRAGService._scan_document_files()
+        documents = KnowledgeRAGService._load_documents_with_langchain(files)
+
+        if not documents:
+            KnowledgeRAGService._documents = files
+            KnowledgeRAGService._chunks = []
+            KnowledgeRAGService._vector_store = None
+            KnowledgeRAGService._retriever = None
+            return {
+                'document_count': len(files),
+                'chunk_count': 0,
+                'index_backend': KnowledgeRAGService._index_backend,
+                'embedding_backend': KnowledgeRAGService._embedding_backend
+            }
+
+        chunk_docs = KnowledgeRAGService._split_documents_with_langchain(documents)
+        embeddings = HashingEmbeddings()
+        vector_store = FAISS.from_documents(chunk_docs, embeddings)
+        retriever = vector_store.as_retriever(search_type='similarity', search_kwargs={'k': 4})
+
+        KnowledgeRAGService._documents = files
+        KnowledgeRAGService._vector_store = vector_store
+        KnowledgeRAGService._retriever = retriever
+        KnowledgeRAGService._chunks = [
+            {
+                'chunk_id': str(doc.metadata.get('chunk_id', '')),
+                'source': str(doc.metadata.get('source', 'unknown')),
+                'content': str(doc.page_content or ''),
+                'score': 0.0
+            }
+            for doc in chunk_docs
+        ]
+        # 保存索引与元数据，支持服务重启后直接加载。
+        KnowledgeRAGService.INDEX_DIR.mkdir(parents=True, exist_ok=True)
+        vector_store.save_local(str(KnowledgeRAGService.INDEX_DIR))
+        KnowledgeRAGService._save_index_metadata(files, KnowledgeRAGService._chunks)
+
+        return {
+            'document_count': len(files),
+            'chunk_count': len(chunk_docs),
+            'index_backend': KnowledgeRAGService._index_backend,
+            'embedding_backend': KnowledgeRAGService._embedding_backend
+        }
+
+    @staticmethod
+    def _ensure_index_ready() -> None:
+        """懒加载索引：首次问答时自动构建。"""
+        if KnowledgeRAGService._vector_store is not None and KnowledgeRAGService._retriever is not None:
+            return
+        if KnowledgeRAGService._load_persisted_index():
+            return
+        KnowledgeRAGService.rebuild_index()
+
+    @staticmethod
+    def list_documents() -> dict[str, Any]:
+        """返回知识库文档列表。"""
+        if not KnowledgeRAGService._documents:
+            KnowledgeRAGService._documents = KnowledgeRAGService._scan_document_files()
+        return {
+            'total': len(KnowledgeRAGService._documents),
+            'documents': [
+                {
+                    'source': item['source'],
+                    'size': item['size'],
+                    'updated_at': item['updated_at']
+                }
+                for item in KnowledgeRAGService._documents
+            ]
+        }
+
+    @staticmethod
+    def _retrieve(question: str, top_k: int) -> list[dict[str, Any]]:
+        """通过 LangChain Retriever 检索片段，并补充分数信息。"""
+        KnowledgeRAGService._ensure_index_ready()
+        if KnowledgeRAGService._vector_store is None:
+            return []
+
+        k = max(1, int(top_k))
+        retriever = KnowledgeRAGService._vector_store.as_retriever(
+            search_type='similarity',
+            search_kwargs={'k': k}
+        )
+        docs = retriever.invoke(question)
+
+        # 使用向量库分数接口补充相关度，便于前端显示“最高相关度”。
+        score_rows = KnowledgeRAGService._vector_store.similarity_search_with_score(question, k=k)
+        score_map: dict[str, float] = {}
+        for doc, score in score_rows:
+            chunk_id = str(doc.metadata.get('chunk_id', ''))
+            if not chunk_id:
+                continue
+            score_map[chunk_id] = float(score)
+
+        results: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for doc in docs:
+            chunk_id = str(doc.metadata.get('chunk_id', '')).strip()
+            source = str(doc.metadata.get('source', 'unknown')).strip()
+            content = str(doc.page_content or '').strip()
+            if not content:
+                continue
+            if not chunk_id:
+                chunk_id = f'{source}#{len(results) + 1}'
+            if chunk_id in seen:
+                continue
+            seen.add(chunk_id)
+            score = score_map.get(chunk_id, 0.0)
+            results.append(
+                {
+                    'chunk_id': chunk_id,
+                    'source': source,
+                    'content': content,
+                    'score': round(max(score, 0.0), 6)
+                }
+            )
+
+        return results
 
     @staticmethod
     def _truncate_text(text: str, max_len: int) -> str:
@@ -161,7 +423,6 @@ class KnowledgeRAGService:
             if not text:
                 continue
 
-            # 过滤“明显是命中片段原文复制”的长文本。
             likely_raw_excerpt = len(text) > 140 and any(prefix and prefix in text for prefix in chunk_prefixes)
             if likely_raw_excerpt:
                 continue
@@ -176,112 +437,6 @@ class KnowledgeRAGService:
                 break
 
         return cleaned
-
-    @staticmethod
-    def rebuild_index() -> dict[str, Any]:
-        """重建知识库索引：文档加载 -> 切分 -> 向量化 -> FAISS/NumPy 索引。"""
-        docs = KnowledgeRAGService._load_documents()
-        chunks: list[dict[str, Any]] = []
-        for doc in docs:
-            pieces = KnowledgeRAGService._split_text(doc['content'])
-            for idx, piece in enumerate(pieces):
-                chunks.append(
-                    {
-                        'source': doc['source'],
-                        'chunk_id': f"{doc['source']}#{idx + 1}",
-                        'content': piece
-                    }
-                )
-
-        if not chunks:
-            KnowledgeRAGService._documents = docs
-            KnowledgeRAGService._chunks = []
-            KnowledgeRAGService._vectors = None
-            KnowledgeRAGService._index = None
-            KnowledgeRAGService._index_backend = 'none'
-            return {'document_count': len(docs), 'chunk_count': 0, 'index_backend': 'none'}
-
-        vectors = KnowledgeRAGService._embed_texts([item['content'] for item in chunks])
-        index_backend = 'numpy'
-        index = None
-
-        if HAS_FAISS and faiss is not None:
-            dim = int(vectors.shape[1])
-            index = faiss.IndexFlatIP(dim)
-            index.add(vectors)
-            index_backend = 'faiss'
-
-        KnowledgeRAGService._documents = docs
-        KnowledgeRAGService._chunks = chunks
-        KnowledgeRAGService._vectors = vectors
-        KnowledgeRAGService._index = index
-        KnowledgeRAGService._index_backend = index_backend
-        return {
-            'document_count': len(docs),
-            'chunk_count': len(chunks),
-            'index_backend': index_backend
-        }
-
-    @staticmethod
-    def _ensure_index_ready() -> None:
-        """懒加载索引：首次问答时自动构建。"""
-        if KnowledgeRAGService._chunks:
-            return
-        KnowledgeRAGService.rebuild_index()
-
-    @staticmethod
-    def list_documents() -> dict[str, Any]:
-        """返回知识库文档列表。"""
-        if not KnowledgeRAGService._documents:
-            KnowledgeRAGService._documents = KnowledgeRAGService._load_documents()
-        return {
-            'total': len(KnowledgeRAGService._documents),
-            'documents': [
-                {
-                    'source': item['source'],
-                    'size': item['size'],
-                    'updated_at': item['updated_at']
-                }
-                for item in KnowledgeRAGService._documents
-            ]
-        }
-
-    @staticmethod
-    def _retrieve(question: str, top_k: int) -> list[dict[str, Any]]:
-        """向量检索 top-k 片段。"""
-        KnowledgeRAGService._ensure_index_ready()
-        if not KnowledgeRAGService._chunks or KnowledgeRAGService._vectors is None:
-            return []
-
-        query_vec = KnowledgeRAGService._embed_texts([question])
-        vectors = KnowledgeRAGService._vectors
-        k = min(max(top_k, 1), len(KnowledgeRAGService._chunks))
-
-        hit_pairs: list[tuple[int, float]] = []
-        if KnowledgeRAGService._index_backend == 'faiss' and KnowledgeRAGService._index is not None:
-            scores, idxs = KnowledgeRAGService._index.search(query_vec, k)
-            for idx, score in zip(idxs[0], scores[0]):
-                if idx < 0:
-                    continue
-                hit_pairs.append((int(idx), float(score)))
-        else:
-            scores = np.dot(vectors, query_vec[0])
-            idxs = np.argsort(-scores)[:k]
-            for idx in idxs:
-                hit_pairs.append((int(idx), float(scores[idx])))
-
-        results: list[dict[str, Any]] = []
-        for idx, score in hit_pairs:
-            chunk = KnowledgeRAGService._chunks[idx]
-            results.append(
-                {
-                    'chunk_id': chunk['chunk_id'],
-                    'source': chunk['source'],
-                    'content': chunk['content'],
-                    'score': round(max(score, 0.0), 6)
-                }
-            )
-        return results
 
     @staticmethod
     def _build_answer_by_llm(question: str, chunks: list[dict[str, Any]]) -> dict[str, Any]:
@@ -310,7 +465,6 @@ class KnowledgeRAGService:
         basis = [str(item).strip() for item in basis_raw] if isinstance(basis_raw, list) else []
         basis = KnowledgeRAGService._sanitize_basis(basis, chunks)
 
-        # 兜底：若模型未给出有效依据摘要，则给出简短结构化依据，避免出现空白区块。
         if not basis and chunks:
             source_counter = Counter([item['source'] for item in chunks])
             top_sources = [source for source, _count in source_counter.most_common(2)]
@@ -365,12 +519,12 @@ class KnowledgeRAGService:
         except Exception:
             answer_pack = KnowledgeRAGService._build_fallback_answer(q, chunks)
 
-        # 命中文档按命中次数排序，便于前端区分“主要依据文档”和“其他命中文档”。
         source_counter = Counter([item['source'] for item in chunks])
         source_pairs = source_counter.most_common()
         sources = [{'source': source, 'hit_count': count} for source, count in source_pairs]
         primary_sources = [source for source, _count in source_pairs[:2]]
         secondary_sources = [source for source, _count in source_pairs[2:]]
+
         return {
             'question': q,
             'answer': answer_pack['answer'],
@@ -379,5 +533,6 @@ class KnowledgeRAGService:
             'primary_sources': primary_sources,
             'secondary_sources': secondary_sources,
             'retrieved_chunks': chunks,
-            'index_backend': KnowledgeRAGService._index_backend
+            'index_backend': KnowledgeRAGService._index_backend,
+            'embedding_backend': KnowledgeRAGService._embedding_backend
         }

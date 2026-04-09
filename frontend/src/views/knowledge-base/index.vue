@@ -3,9 +3,24 @@
     <n-card title="知识库助手" :bordered="false">
       <template #header-extra>
         <n-space>
+          <n-tag size="small" :type="indexInfo?.index_loaded ? 'success' : 'warning'">
+            {{ indexInfo?.index_loaded ? '索引已加载' : '索引未加载' }}
+          </n-tag>
           <n-button :loading="rebuilding" @click="handleRebuildIndex">重建索引</n-button>
         </n-space>
       </template>
+
+      <div class="index-info-bar">
+        <n-space align="center" :size="10" wrap>
+          <span>索引状态：{{ indexInfo?.index_exists ? '已构建' : '未构建' }}</span>
+          <span>文档数：{{ indexInfo?.document_count ?? 0 }}</span>
+          <span>片段数：{{ indexInfo?.chunk_count ?? 0 }}</span>
+          <span>索引体积：{{ formatBytes(indexInfo?.index_size_bytes || 0) }}</span>
+          <span>构建时间：{{ indexInfo?.saved_at || '-' }}</span>
+          <span>检索后端：{{ indexInfo?.index_backend || '-' }}</span>
+          <span>Embedding：{{ indexInfo?.embedding_backend || '-' }}</span>
+        </n-space>
+      </div>
 
       <n-form label-placement="left" label-width="80">
         <n-grid :cols="24" :x-gap="12" :y-gap="10">
@@ -150,10 +165,12 @@ import {
 import {
   knowledgeAskApi,
   knowledgeDocumentsApi,
+  knowledgeIndexInfoApi,
   knowledgeRebuildApi,
   type KnowledgeAskResult,
   type KnowledgeChunkItem,
-  type KnowledgeDocumentItem
+  type KnowledgeDocumentItem,
+  type KnowledgeIndexInfo
 } from '@/api/knowledge-base'
 
 const message = useMessage()
@@ -168,6 +185,7 @@ const lastTopK = ref(4)
 const askedAtText = ref('-')
 const result = ref<KnowledgeAskResult | null>(null)
 const documents = ref<KnowledgeDocumentItem[]>([])
+const indexInfo = ref<KnowledgeIndexInfo | null>(null)
 const selectedSource = ref('')
 const expandedChunkMap = ref<Record<string, boolean>>({})
 
@@ -456,6 +474,20 @@ const fetchDocuments = async () => {
   }
 }
 
+// 获取索引状态信息：用于展示索引加载状态与构建时间。
+const fetchIndexInfo = async () => {
+  try {
+    const res = await knowledgeIndexInfoApi()
+    if (res.data.code !== 0) {
+      message.error(res.data.message || '索引状态加载失败')
+      return
+    }
+    indexInfo.value = (res.data?.data || null) as KnowledgeIndexInfo | null
+  } catch (_error) {
+    message.error('索引状态请求失败')
+  }
+}
+
 const handleRebuildIndex = async () => {
   rebuilding.value = true
   try {
@@ -465,6 +497,7 @@ const handleRebuildIndex = async () => {
       return
     }
     await fetchDocuments()
+    await fetchIndexInfo()
     const data = res.data?.data || {}
     message.success(`索引重建完成：文档 ${data.document_count || 0}，片段 ${data.chunk_count || 0}`)
   } catch (_error) {
@@ -512,6 +545,7 @@ const handleReset = () => {
 
 onMounted(() => {
   fetchDocuments()
+  fetchIndexInfo()
 })
 </script>
 
@@ -528,6 +562,16 @@ onMounted(() => {
 
 .side-card {
   opacity: 0.97;
+}
+
+.index-info-bar {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border: 1px solid #eef2f6;
+  border-radius: 6px;
+  color: #666;
+  font-size: 12px;
+  background: #fafcfe;
 }
 
 .answer-meta-grid {

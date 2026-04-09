@@ -23,6 +23,16 @@ def kb_documents(
     return api_success(data)
 
 
+@router.get('/index-info')
+def kb_index_info(
+    _current_user: User = Depends(get_current_user),
+    _db: Session = Depends(get_db)
+):
+    """知识库索引状态接口：返回索引是否已加载、构建时间与索引体积。"""
+    data = KnowledgeRAGService.get_index_info()
+    return api_success(data)
+
+
 @router.post('/rebuild')
 def kb_rebuild(
     _current_user: User = Depends(get_current_user),
@@ -45,4 +55,3 @@ def kb_ask(
         return api_success(data)
     except ValueError as exc:
         return api_error(str(exc))
-
