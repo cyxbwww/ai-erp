@@ -53,15 +53,13 @@ export const patchOrderRuntimeState = (orderId: number, patch: Partial<OrderRunt
 }
 
 // 按订单状态生成默认运行态，避免列表与详情出现空白。
-const buildDefaultStateByStatus = (status: string, orderId: number): OrderRuntimeState => {
-  const riskSeed = orderId % 3
-  const risk_level: OrderRiskLevel = riskSeed === 0 ? 'high' : riskSeed === 1 ? 'medium' : 'low'
-
+// 注意：风险等级统一以后端 AI 返回为准，默认态不再使用前端随机推导。
+const buildDefaultStateByStatus = (status: string): OrderRuntimeState => {
   if (status === 'cancelled') {
     return {
       payment_status: 'closed',
       shipping_status: 'unshipped',
-      risk_level,
+      risk_level: 'low',
       ai_analyzed: false
     }
   }
@@ -69,7 +67,7 @@ const buildDefaultStateByStatus = (status: string, orderId: number): OrderRuntim
     return {
       payment_status: 'paid',
       shipping_status: 'shipped',
-      risk_level,
+      risk_level: 'low',
       ai_analyzed: false
     }
   }
@@ -77,14 +75,14 @@ const buildDefaultStateByStatus = (status: string, orderId: number): OrderRuntim
     return {
       payment_status: 'paid',
       shipping_status: 'unshipped',
-      risk_level,
+      risk_level: 'low',
       ai_analyzed: false
     }
   }
   return {
     payment_status: 'unpaid',
     shipping_status: 'unshipped',
-    risk_level,
+    risk_level: 'low',
     ai_analyzed: false
   }
 }
@@ -95,7 +93,7 @@ export const ensureOrderRuntimeStates = (orders: Array<{ id: number; status: str
   let changed = false
   orders.forEach((order) => {
     if (!map[order.id]) {
-      map[order.id] = buildDefaultStateByStatus(order.status, order.id)
+      map[order.id] = buildDefaultStateByStatus(order.status)
       changed = true
     }
   })

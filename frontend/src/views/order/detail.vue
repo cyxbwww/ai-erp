@@ -136,6 +136,12 @@
               <div v-else class="ai-result-block">
                 <div class="ai-section-title">结论摘要</div>
                 <div class="ai-summary">{{ aiResults[card.type]?.summary || '-' }}</div>
+                <div v-if="card.type === 'risk'" class="ai-risk-level-row">
+                  <span class="ai-risk-level-label">风险等级：</span>
+                  <n-tag size="small" :type="getRiskLevelTagType((aiResults.risk?.risk_level || 'low') as 'low' | 'medium' | 'high')">
+                    {{ getRiskLevelLabel((aiResults.risk?.risk_level || 'low') as 'low' | 'medium' | 'high') }}
+                  </n-tag>
+                </div>
 
                 <div class="ai-section-title">{{ card.pointTitle }}</div>
                 <ul class="ai-list">
@@ -589,6 +595,20 @@ const getAIStatus = (type: AIType): { label: string; type: NaiveTagType } => {
   return { label: '未生成', type: 'default' }
 }
 
+// 风险等级标签文案映射
+const getRiskLevelLabel = (level: 'low' | 'medium' | 'high'): string => {
+  if (level === 'high') return '高风险'
+  if (level === 'medium') return '中风险'
+  return '低风险'
+}
+
+// 风险等级标签颜色映射
+const getRiskLevelTagType = (level: 'low' | 'medium' | 'high'): NaiveTagType => {
+  if (level === 'high') return 'error'
+  if (level === 'medium') return 'warning'
+  return 'success'
+}
+
 // AI 卡片按钮文案：未生成按模块提示“生成xx”，已生成提示“重新生成”。
 const getAIGenerateButtonText = (type: AIType): string => {
   if (aiResults[type]) return '重新生成'
@@ -754,9 +774,9 @@ const handleAIAnalyze = async (analysisType: AIType) => {
     aiResults[analysisType] = res.data.data as OrderAIAnalysisResult
     aiGeneratedAt[analysisType] = new Date().toLocaleString('zh-CN')
     if (analysisType === 'risk') {
-      const riskCount = aiResults[analysisType]?.risks?.length || 0
+      // 风险等级统一以后端 risk_level 为准，前端不再根据风险条目数量推导。
       patchOrderRuntimeState(orderId.value, {
-        risk_level: riskCount >= 3 ? 'high' : riskCount >= 1 ? 'medium' : 'low',
+        risk_level: aiResults[analysisType]?.risk_level || 'low',
         ai_analyzed: true,
         ai_analyzed_at: aiGeneratedAt[analysisType]
       })
@@ -825,6 +845,17 @@ onMounted(async () => {
 
 .ai-summary {
   margin-bottom: 6px;
+}
+
+.ai-risk-level-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.ai-risk-level-label {
+  color: #666;
 }
 
 .ai-list {

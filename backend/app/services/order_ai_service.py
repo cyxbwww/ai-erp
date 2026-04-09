@@ -55,13 +55,15 @@ class OrderAIService:
             '你必须使用中文业务表达，严禁输出任何英文状态枚举值。\n'
             '订单状态请仅使用以下中文语义：待确认、待付款、已付款、已完成、已取消。\n'
             '若输入中存在 pending/unpaid/paid/completed/cancelled，也必须转换为对应中文。\n'
+            '如果是“AI 风险检测”，请额外返回风险等级 risk_level，仅允许 low / medium / high。\n'
             'JSON 结构如下：\n'
             '{\n'
             '  "title": "string",\n'
             '  "summary": "string",\n'
             '  "highlights": ["string"],\n'
             '  "risks": ["string"],\n'
-            '  "suggestions": ["string"]\n'
+            '  "suggestions": ["string"],\n'
+            '  "risk_level": "low|medium|high"\n'
             '}\n'
             f'订单数据：{localized_detail}'
         )
@@ -69,15 +71,23 @@ class OrderAIService:
     @staticmethod
     def _normalize_ai_result(data: dict[str, Any], analysis_type: str) -> dict[str, Any]:
         """标准化 AI 返回结构，并兜底替换所有英文状态枚举。"""
+        normalized_risks = OrderAIService._ensure_list(data.get('risks'))
+        normalized_highlights = OrderAIService._ensure_list(data.get('highlights'))
+        risk_level = OrderAIService._normalize_risk_level(data.get('risk_level'))
+        if analysis_type == 'risk' and risk_level == 'low':
+            # 风险检测场景下，模型未返回有效 risk_level 时，按风险要点数量做后端兜底。
+            risk_level = OrderAIService._derive_risk_level_from_items(normalized_risks, normalized_highlights)
+
         return {
             'analysis_type': analysis_type,
             'title': replace_order_status_enums(
                 str(data.get('title', '')).strip() or OrderAIService.ANALYSIS_TYPE_TITLE[analysis_type]
             ),
             'summary': replace_order_status_enums(str(data.get('summary', '')).strip()),
-            'highlights': OrderAIService._ensure_list(data.get('highlights')),
-            'risks': OrderAIService._ensure_list(data.get('risks')),
-            'suggestions': OrderAIService._ensure_list(data.get('suggestions'))
+            'highlights': normalized_highlights,
+            'risks': normalized_risks,
+            'suggestions': OrderAIService._ensure_list(data.get('suggestions')),
+            'risk_level': risk_level
         }
 
     @staticmethod
@@ -89,6 +99,25 @@ class OrderAIService:
         if isinstance(value, str) and value.strip():
             return [replace_order_status_enums(value.strip())]
         return []
+
+    @staticmethod
+    def _normalize_risk_level(value: Any) -> str:
+        """规范化风险等级字段，仅允许 low/medium/high。"""
+        normalized = str(value or '').strip().lower()
+        if normalized in {'low', 'medium', 'high'}:
+            return normalized
+        return 'low'
+
+    @staticmethod
+    def _derive_risk_level_from_items(risks: list[str], highlights: list[str]) -> str:
+        """后端风险等级兜底规则：仅在模型未给出合法等级时使用。"""
+        risk_count = len(risks)
+        highlight_count = len(highlights)
+        if risk_count >= 3:
+            return 'high'
+        if risk_count >= 1 or highlight_count >= 2:
+            return 'medium'
+        return 'low'
 
     @staticmethod
     def _fallback_result(detail: dict[str, Any], analysis_type: str) -> dict[str, Any]:
@@ -134,5 +163,7 @@ class OrderAIService:
             'summary': summary,
             'highlights': highlights,
             'risks': risks,
-            'suggestions': suggestions
+            'suggestions': suggestions,
+            # 回退场景也返回标准 risk_level，前端统一按该字段展示，不再自行推导。
+            'risk_level': OrderAIService._derive_risk_level_from_items(risks, highlights)
         }

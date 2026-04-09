@@ -237,15 +237,6 @@ const getMoreOptions = (row: OrderListItem): DropdownOption[] => {
   ]
 }
 
-// 依据 AI 风险结果推导风险等级
-const deriveRiskLevelFromAIResult = (result: { risks?: string[]; highlights?: string[] }): OrderRiskLevel => {
-  const riskCount = result.risks?.length || 0
-  const highlightCount = result.highlights?.length || 0
-  if (riskCount >= 3) return 'high'
-  if (riskCount >= 1 || highlightCount >= 2) return 'medium'
-  return 'low'
-}
-
 // 获取当前筛选后的列表，并更新分页展示
 const refreshTableByFilter = () => {
   const orderNo = searchForm.orderNo.trim().toLowerCase()
@@ -366,7 +357,8 @@ const handleRowAIAnalyze = async (row: OrderListItem, silent = false): Promise<b
       return false
     }
 
-    const riskLevel = deriveRiskLevelFromAIResult(res.data.data || {})
+    // 风险等级统一使用后端 AI 返回值，不再前端自行推导。
+    const riskLevel = (res.data.data?.risk_level || getRuntime(row)?.risk_level || 'low') as OrderRiskLevel
     patchOrderRuntimeState(row.id, {
       risk_level: riskLevel,
       ai_analyzed: true,

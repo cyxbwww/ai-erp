@@ -114,6 +114,8 @@ export interface OrderAIAnalysisResult {
   highlights: string[]
   risks: string[]
   suggestions: string[]
+  // 后端统一返回风险等级：列表页和详情页以该字段为准，不再前端推导。
+  risk_level?: 'low' | 'medium' | 'high'
   ai_source: 'deepseek' | 'fallback'
 }
 
