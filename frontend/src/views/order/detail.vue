@@ -102,61 +102,72 @@
       </n-spin>
     </n-card>
 
-    <n-card title="AI 分析模块" :bordered="false">
+    <n-card title="AI 多Agent订单分析（主流程）" :bordered="false">
       <template #header-extra>
         <n-space>
-          <n-button :loading="aiLoadingMap.analysis" @click="handleAIAnalyze('analysis')">AI 分析订单</n-button>
-          <n-button :loading="aiLoadingMap.risk" @click="handleAIAnalyze('risk')">AI 风险检测</n-button>
-          <n-button :loading="aiLoadingMap.advice" @click="handleAIAnalyze('advice')">AI 销售建议</n-button>
+          <n-button :loading="multiAgentLoading" @click="handleRunOrderMultiAgentAnalysis">{{ multiAgentButtonText }}</n-button>
         </n-space>
       </template>
+      <AiAnalysisPanel
+        scene-type="order"
+        :loading="multiAgentLoading"
+        :result="multiAgentResult"
+        :error="multiAgentError"
+        @retry="handleRunOrderMultiAgentAnalysis"
+      />
+    </n-card>
 
-      <n-grid :cols="3" :x-gap="12" :y-gap="12">
-        <n-gi v-for="card in aiCards" :key="card.type">
-          <n-card size="small" :title="card.title">
-            <template #header-extra>
-              <n-space size="small" align="center">
-                <n-tag size="small" :type="getAIStatus(card.type).type">
-                  {{ getAIStatus(card.type).label }}
-                </n-tag>
-                <n-button size="tiny" :loading="aiLoadingMap[card.type]" @click="handleAIAnalyze(card.type)">
-                  {{ getAIGenerateButtonText(card.type) }}
-                </n-button>
-                <n-button size="tiny" :disabled="!aiResults[card.type]" @click="handleCopyAIResult(card.type)">
-                  复制结果
-                </n-button>
-              </n-space>
-            </template>
+    <n-card title="基础 AI 能力（兼容）" :bordered="false" class="legacy-ai-card">
+      <n-collapse>
+        <n-collapse-item title="订单分析/风险检测/销售建议（旧模块）" name="legacy-order-ai">
+          <n-grid :cols="3" :x-gap="12" :y-gap="12">
+            <n-gi v-for="card in aiCards" :key="card.type">
+              <n-card size="small" :title="card.title" class="legacy-inner-card">
+                <template #header-extra>
+                  <n-space size="small" align="center">
+                    <n-tag size="small" :type="getAIStatus(card.type).type">
+                      {{ getAIStatus(card.type).label }}
+                    </n-tag>
+                    <n-button size="tiny" :loading="aiLoadingMap[card.type]" @click="handleAIAnalyze(card.type)">
+                      {{ getAIGenerateButtonText(card.type) }}
+                    </n-button>
+                    <n-button size="tiny" :disabled="!aiResults[card.type]" @click="handleCopyAIResult(card.type)">
+                      复制结果
+                    </n-button>
+                  </n-space>
+                </template>
 
-            <n-spin :show="aiLoadingMap[card.type]">
-              <div class="ai-meta-row">分析时间：{{ aiGeneratedAt[card.type] || '-' }}</div>
+                <n-spin :show="aiLoadingMap[card.type]">
+                  <div class="ai-meta-row">分析时间：{{ aiGeneratedAt[card.type] || '-' }}</div>
 
-              <n-empty v-if="!aiResults[card.type]" :description="card.emptyText" />
+                  <n-empty v-if="!aiResults[card.type]" :description="card.emptyText" />
 
-              <div v-else class="ai-result-block">
-                <div class="ai-section-title">结论摘要</div>
-                <div class="ai-summary">{{ aiResults[card.type]?.summary || '-' }}</div>
-                <div v-if="card.type === 'risk'" class="ai-risk-level-row">
-                  <span class="ai-risk-level-label">风险等级：</span>
-                  <n-tag size="small" :type="getRiskLevelTagType((aiResults.risk?.risk_level || 'low') as 'low' | 'medium' | 'high')">
-                    {{ getRiskLevelLabel((aiResults.risk?.risk_level || 'low') as 'low' | 'medium' | 'high') }}
-                  </n-tag>
-                </div>
+                  <div v-else class="ai-result-block">
+                    <div class="ai-section-title">结论摘要</div>
+                    <div class="ai-summary">{{ aiResults[card.type]?.summary || '-' }}</div>
+                    <div v-if="card.type === 'risk'" class="ai-risk-level-row">
+                      <span class="ai-risk-level-label">风险等级：</span>
+                      <n-tag size="small" :type="getRiskLevelTagType((aiResults.risk?.risk_level || 'low') as 'low' | 'medium' | 'high')">
+                        {{ getRiskLevelLabel((aiResults.risk?.risk_level || 'low') as 'low' | 'medium' | 'high') }}
+                      </n-tag>
+                    </div>
 
-                <div class="ai-section-title">{{ card.pointTitle }}</div>
-                <ul class="ai-list">
-                  <li v-for="(item, idx) in getAIPoints(card.type)" :key="`point-${card.type}-${idx}`">{{ item }}</li>
-                </ul>
+                    <div class="ai-section-title">{{ card.pointTitle }}</div>
+                    <ul class="ai-list">
+                      <li v-for="(item, idx) in getAIPoints(card.type)" :key="`point-${card.type}-${idx}`">{{ item }}</li>
+                    </ul>
 
-                <div class="ai-section-title">建议动作</div>
-                <ul class="ai-list">
-                  <li v-for="(item, idx) in aiResults[card.type]?.suggestions || []" :key="`suggest-${card.type}-${idx}`">{{ item }}</li>
-                </ul>
-              </div>
-            </n-spin>
-          </n-card>
-        </n-gi>
-      </n-grid>
+                    <div class="ai-section-title">建议动作</div>
+                    <ul class="ai-list">
+                      <li v-for="(item, idx) in aiResults[card.type]?.suggestions || []" :key="`suggest-${card.type}-${idx}`">{{ item }}</li>
+                    </ul>
+                  </div>
+                </n-spin>
+              </n-card>
+            </n-gi>
+          </n-grid>
+        </n-collapse-item>
+      </n-collapse>
     </n-card>
 
     <n-card title="订单明细" :bordered="false">
@@ -205,6 +216,8 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   NButton,
   NCard,
+  NCollapse,
+  NCollapseItem,
   NDataTable,
   NDescriptions,
   NDescriptionsItem,
@@ -233,7 +246,10 @@ import {
   type OrderReceiverInfo,
   type OrderShippingInfo
 } from '@/api/order'
+import { aiChatApi } from '@/api/ai'
+import AiAnalysisPanel from '@/components/ai/AiAnalysisPanel.vue'
 import { getOrderStatusLabel, getOrderStatusTagType, getProductUnitLabel } from '@/constants/enums'
+import type { AIChatResult } from '@/types/ai'
 import { getOrderRuntimeState, patchOrderRuntimeState } from '@/utils/order-runtime-state'
 
 type OrderTransitionStatus = 'confirmed' | 'completed' | 'cancelled'
@@ -287,8 +303,12 @@ const aiGeneratedAt = reactive<Record<AIType, string>>({
   risk: '',
   advice: ''
 })
+const multiAgentLoading = ref(false)
+const multiAgentResult = ref<AIChatResult | null>(null)
+const multiAgentError = ref('')
 
 const orderId = computed(() => Number(route.params.id) || 0)
+const multiAgentButtonText = computed(() => (multiAgentResult.value ? '重新多Agent分析' : 'AI 多Agent分析'))
 
 // 读取本地持久化映射。
 const getPersistedMap = (): Record<number, OrderDetailPersistedState> => {
@@ -796,6 +816,46 @@ const handleAIAnalyze = async (analysisType: AIType) => {
   }
 }
 
+// 调用多 Agent 订单分析接口：返回统一 plan、summary 与 Agent 结果。
+const handleRunOrderMultiAgentAnalysis = async () => {
+  if (!orderId.value) {
+    message.error('订单编号无效')
+    return
+  }
+  multiAgentLoading.value = true
+  multiAgentError.value = ''
+  try {
+    const res = await aiChatApi({
+      scene: 'order_detail',
+      user_message: '分析当前订单风险并给出建议',
+      context: {
+        order_id: orderId.value
+      }
+    })
+    if (res.data.code !== 0) {
+      multiAgentResult.value = null
+      multiAgentError.value = res.data.message || '多 Agent 订单分析失败'
+      message.error(multiAgentError.value)
+      return
+    }
+    multiAgentResult.value = res.data.data as AIChatResult
+    appendLocalOperationLog({
+      action_type: 'ai_analysis',
+      content: '执行 AI 多Agent订单分析',
+      operator: '当前用户',
+      operated_at: new Date().toLocaleString('zh-CN'),
+      remark: '基于 /api/ai/chat'
+    })
+    message.success('AI 多Agent订单分析完成')
+  } catch (_error) {
+    multiAgentResult.value = null
+    multiAgentError.value = '多 Agent 订单分析请求失败'
+    message.error(multiAgentError.value)
+  } finally {
+    multiAgentLoading.value = false
+  }
+}
+
 onMounted(async () => {
   await fetchDetail()
   restorePersistedOrderDetailState()
@@ -861,6 +921,14 @@ onMounted(async () => {
 .ai-list {
   margin: 0;
   padding-left: 18px;
+}
+
+.legacy-ai-card :deep(.n-collapse-item__header) {
+  font-weight: 600;
+}
+
+.legacy-inner-card {
+  background: #fafafa;
 }
 
 .summary-grid {

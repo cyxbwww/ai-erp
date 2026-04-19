@@ -5,6 +5,7 @@
         <n-space>
           <n-button :loading="aiAdviceLoading" @click="handleGenerateAdvice">AI 生成跟进建议</n-button>
           <n-button :loading="aiSummaryLoading" @click="handleGenerateSummary">AI 总结跟进记录</n-button>
+          <n-button :loading="multiAgentLoading" @click="handleRunMultiAgentAnalysis">{{ multiAgentButtonText }}</n-button>
           <n-button @click="handleRefresh">刷新</n-button>
           <n-button tertiary @click="goBack">返回</n-button>
         </n-space>
@@ -163,86 +164,104 @@
     </n-card>
 
     <div ref="aiPanelsRef" class="ai-panels">
-      <n-card title="AI 跟进建议" :bordered="true" class="ai-panel-card">
-        <template #header-extra>
-          <n-space size="small" align="center">
-            <n-tag size="small" :type="aiAdviceResult ? 'success' : 'default'">{{ aiAdviceResult ? '已生成' : '未生成' }}</n-tag>
-            <n-button size="tiny" :loading="aiAdviceLoading" @click="handleGenerateAdvice">{{ adviceGenerateButtonText }}</n-button>
-            <n-button size="tiny" :disabled="!aiAdviceResult" @click="handleCopyAdvice">复制结果</n-button>
-          </n-space>
-        </template>
-        <n-spin :show="aiAdviceLoading">
-          <div class="ai-meta-row">分析时间：{{ aiAdviceGeneratedAt || '-' }}</div>
-          <n-empty v-if="!aiAdviceResult" description="暂无 AI 跟进建议，请点击生成建议" />
-          <n-space v-else vertical :size="14">
-            <div class="ai-row">
-              <span class="ai-label">客户状态判断：</span>
-              <span class="ai-value">{{ adviceStatusJudgement }}</span>
-            </div>
-            <div class="ai-row">
-              <span class="ai-label">推荐下一步动作：</span>
-            </div>
-            <ul class="ai-list">
-              <li v-for="(item, index) in adviceNextStepPoints" :key="`advice-${index}`">{{ item }}</li>
-            </ul>
-            <div class="ai-row">
-              <span class="ai-label">推荐跟进时间：</span>
-              <span class="ai-value">{{ aiAdviceResult.suggested_next_follow_time || '-' }}</span>
-            </div>
-            <div class="ai-row">
-              <span class="ai-label">推荐沟通话术：</span>
-            </div>
-            <div class="ai-talk-track">{{ aiAdviceResult.recommended_talk_track || '-' }}</div>
-            <div class="ai-row">
-              <span class="ai-label">风险提醒：</span>
-            </div>
-            <ul class="ai-list">
-              <li v-for="(item, index) in adviceRiskWarnings" :key="`advice-risk-${index}`">{{ item }}</li>
-            </ul>
-          </n-space>
-        </n-spin>
+      <n-card title="AI 多Agent分析（主流程）" :bordered="true" class="ai-panel-card">
+        <AiAnalysisPanel
+          scene-type="customer"
+          :loading="multiAgentLoading"
+          :result="multiAgentResult"
+          :error="multiAgentError"
+          @retry="handleRunMultiAgentAnalysis"
+        />
       </n-card>
 
-      <n-card title="AI 跟进总结" :bordered="true" class="ai-panel-card">
-        <template #header-extra>
-          <n-space size="small" align="center">
-            <n-tag size="small" :type="aiSummaryResult ? 'success' : 'default'">{{ aiSummaryResult ? '已生成' : '未生成' }}</n-tag>
-            <n-button size="tiny" :loading="aiSummaryLoading" @click="handleGenerateSummary">{{ summaryGenerateButtonText }}</n-button>
-            <n-button size="tiny" :disabled="!aiSummaryResult" @click="handleCopySummary">复制结果</n-button>
-          </n-space>
-        </template>
-        <n-spin :show="aiSummaryLoading">
-          <div class="ai-meta-row">分析时间：{{ aiSummaryGeneratedAt || '-' }}</div>
-          <n-empty v-if="!aiSummaryResult" description="暂无 AI 跟进总结，请点击生成总结" />
-          <n-space v-else vertical :size="14">
-            <div class="ai-row">
-              <span class="ai-label">历史跟进摘要：</span>
-            </div>
-            <ul class="ai-list">
-              <li v-for="(item, index) in summaryHistoryPoints" :key="`point-${index}`">{{ item }}</li>
-            </ul>
-            <div class="ai-row">
-              <span class="ai-label">客户关注点：</span>
-              <span class="ai-value">{{ summaryCurrentFocus }}</span>
-            </div>
-            <div class="ai-row">
-              <span class="ai-label">成交可能性判断：</span>
-              <span class="ai-value">{{ dealProbabilityText }}</span>
-            </div>
-            <div class="ai-row">
-              <span class="ai-label">当前阻塞点：</span>
-            </div>
-            <ul class="ai-list">
-              <li v-for="(item, index) in summaryRiskPoints" :key="`risk-${index}`">{{ item }}</li>
-            </ul>
-            <div class="ai-row">
-              <span class="ai-label">后续建议：</span>
-            </div>
-            <ul class="ai-list">
-              <li v-for="(item, index) in summaryFollowUpAdvice" :key="`summary-advice-${index}`">{{ item }}</li>
-            </ul>
-          </n-space>
-        </n-spin>
+      <n-card title="基础 AI 能力（兼容）" :bordered="true" class="ai-panel-card legacy-ai-card">
+        <n-collapse>
+          <n-collapse-item title="AI 跟进建议（旧模块）" name="legacy-advice">
+            <n-card :bordered="false" class="legacy-inner-card">
+              <template #header-extra>
+                <n-space size="small" align="center">
+                  <n-tag size="small" :type="aiAdviceResult ? 'success' : 'default'">{{ aiAdviceResult ? '已生成' : '未生成' }}</n-tag>
+                  <n-button size="tiny" :loading="aiAdviceLoading" @click="handleGenerateAdvice">{{ adviceGenerateButtonText }}</n-button>
+                  <n-button size="tiny" :disabled="!aiAdviceResult" @click="handleCopyAdvice">复制结果</n-button>
+                </n-space>
+              </template>
+              <n-spin :show="aiAdviceLoading">
+                <div class="ai-meta-row">分析时间：{{ aiAdviceGeneratedAt || '-' }}</div>
+                <n-empty v-if="!aiAdviceResult" description="暂无 AI 跟进建议，请点击生成建议" />
+                <n-space v-else vertical :size="14">
+                  <div class="ai-row">
+                    <span class="ai-label">客户状态判断：</span>
+                    <span class="ai-value">{{ adviceStatusJudgement }}</span>
+                  </div>
+                  <div class="ai-row">
+                    <span class="ai-label">推荐下一步动作：</span>
+                  </div>
+                  <ul class="ai-list">
+                    <li v-for="(item, index) in adviceNextStepPoints" :key="`advice-${index}`">{{ item }}</li>
+                  </ul>
+                  <div class="ai-row">
+                    <span class="ai-label">推荐跟进时间：</span>
+                    <span class="ai-value">{{ aiAdviceResult.suggested_next_follow_time || '-' }}</span>
+                  </div>
+                  <div class="ai-row">
+                    <span class="ai-label">推荐沟通话术：</span>
+                  </div>
+                  <div class="ai-talk-track">{{ aiAdviceResult.recommended_talk_track || '-' }}</div>
+                  <div class="ai-row">
+                    <span class="ai-label">风险提醒：</span>
+                  </div>
+                  <ul class="ai-list">
+                    <li v-for="(item, index) in adviceRiskWarnings" :key="`advice-risk-${index}`">{{ item }}</li>
+                  </ul>
+                </n-space>
+              </n-spin>
+            </n-card>
+          </n-collapse-item>
+
+          <n-collapse-item title="AI 跟进总结（旧模块）" name="legacy-summary">
+            <n-card :bordered="false" class="legacy-inner-card">
+              <template #header-extra>
+                <n-space size="small" align="center">
+                  <n-tag size="small" :type="aiSummaryResult ? 'success' : 'default'">{{ aiSummaryResult ? '已生成' : '未生成' }}</n-tag>
+                  <n-button size="tiny" :loading="aiSummaryLoading" @click="handleGenerateSummary">{{ summaryGenerateButtonText }}</n-button>
+                  <n-button size="tiny" :disabled="!aiSummaryResult" @click="handleCopySummary">复制结果</n-button>
+                </n-space>
+              </template>
+              <n-spin :show="aiSummaryLoading">
+                <div class="ai-meta-row">分析时间：{{ aiSummaryGeneratedAt || '-' }}</div>
+                <n-empty v-if="!aiSummaryResult" description="暂无 AI 跟进总结，请点击生成总结" />
+                <n-space v-else vertical :size="14">
+                  <div class="ai-row">
+                    <span class="ai-label">历史跟进摘要：</span>
+                  </div>
+                  <ul class="ai-list">
+                    <li v-for="(item, index) in summaryHistoryPoints" :key="`point-${index}`">{{ item }}</li>
+                  </ul>
+                  <div class="ai-row">
+                    <span class="ai-label">客户关注点：</span>
+                    <span class="ai-value">{{ summaryCurrentFocus }}</span>
+                  </div>
+                  <div class="ai-row">
+                    <span class="ai-label">成交可能性判断：</span>
+                    <span class="ai-value">{{ dealProbabilityText }}</span>
+                  </div>
+                  <div class="ai-row">
+                    <span class="ai-label">当前阻塞点：</span>
+                  </div>
+                  <ul class="ai-list">
+                    <li v-for="(item, index) in summaryRiskPoints" :key="`risk-${index}`">{{ item }}</li>
+                  </ul>
+                  <div class="ai-row">
+                    <span class="ai-label">后续建议：</span>
+                  </div>
+                  <ul class="ai-list">
+                    <li v-for="(item, index) in summaryFollowUpAdvice" :key="`summary-advice-${index}`">{{ item }}</li>
+                  </ul>
+                </n-space>
+              </n-spin>
+            </n-card>
+          </n-collapse-item>
+        </n-collapse>
       </n-card>
     </div>
 
@@ -297,6 +316,8 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   NButton,
   NCard,
+  NCollapse,
+  NCollapseItem,
   NDataTable,
   NDatePicker,
   NDescriptions,
@@ -336,7 +357,10 @@ import {
   type CustomerFollowRecordPayload,
   type CustomerItem
 } from '@/api/customer'
+import { aiChatApi } from '@/api/ai'
+import AiAnalysisPanel from '@/components/ai/AiAnalysisPanel.vue'
 import { orderListApi, type OrderListItem } from '@/api/order'
+import type { AIChatResult } from '@/types/ai'
 import {
   FOLLOW_TYPE_OPTIONS,
   getCustomerLevelLabel,
@@ -378,6 +402,7 @@ const followLoading = ref(false)
 const followSubmitLoading = ref(false)
 const aiAdviceLoading = ref(false)
 const aiSummaryLoading = ref(false)
+const multiAgentLoading = ref(false)
 const relatedOrderLoading = ref(false)
 
 // 客户详情与跟进记录列表数据
@@ -385,6 +410,8 @@ const detail = ref<CustomerItem | null>(null)
 const followList = ref<CustomerFollowRecordItem[]>([])
 const aiAdviceResult = ref<CustomerAIFollowAdvice | null>(null)
 const aiSummaryResult = ref<CustomerAIFollowSummary | null>(null)
+const multiAgentResult = ref<AIChatResult | null>(null)
+const multiAgentError = ref('')
 const aiAdviceGeneratedAt = ref('')
 const aiSummaryGeneratedAt = ref('')
 
@@ -478,6 +505,7 @@ const adviceStatusJudgement = computed(() => {
 // AI 按钮文案：未生成时提示“生成”，已生成时提示“重新生成”。
 const adviceGenerateButtonText = computed(() => (aiAdviceResult.value ? '重新生成' : '生成建议'))
 const summaryGenerateButtonText = computed(() => (aiSummaryResult.value ? '重新生成' : '生成总结'))
+const multiAgentButtonText = computed(() => (multiAgentResult.value ? '重新多Agent分析' : 'AI 多Agent分析'))
 
 // 建议区动作兜底，避免接口返回空数组时出现空白区域。
 const adviceNextStepPoints = computed(() => {
@@ -945,6 +973,42 @@ const handleGenerateSummary = async () => {
   }
 }
 
+// 调用多 Agent 统一分析接口：用于展示可演示的计划与分步结果。
+const handleRunMultiAgentAnalysis = async () => {
+  if (!customerId.value) {
+    message.error('客户编号无效')
+    return
+  }
+  multiAgentLoading.value = true
+  multiAgentError.value = ''
+  try {
+    const res = await aiChatApi({
+      scene: 'customer_detail',
+      user_message: '分析当前客户状态，并给出下一步跟进建议',
+      context: {
+        customer_id: customerId.value
+      }
+    })
+    if (res.data.code !== 0) {
+      multiAgentResult.value = null
+      multiAgentError.value = res.data.message || '多 Agent 分析失败'
+      message.error(multiAgentError.value)
+      return
+    }
+    multiAgentResult.value = res.data.data as AIChatResult
+    appendOperationLog('AI', '执行了 AI 多Agent分析')
+    await nextTick()
+    aiPanelsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    message.success('AI 多Agent分析完成')
+  } catch (_error) {
+    multiAgentResult.value = null
+    multiAgentError.value = '多 Agent 分析请求失败'
+    message.error(multiAgentError.value)
+  } finally {
+    multiAgentLoading.value = false
+  }
+}
+
 const goBack = () => {
   router.push('/customer')
 }
@@ -1068,6 +1132,14 @@ onMounted(async () => {
 .ai-panel-card {
   border: 1px solid #d9e1ec;
   border-radius: 10px;
+}
+
+.legacy-ai-card :deep(.n-collapse-item__header) {
+  font-weight: 600;
+}
+
+.legacy-inner-card {
+  background: #fafafa;
 }
 
 .ai-meta-row {
