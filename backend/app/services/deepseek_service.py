@@ -69,7 +69,9 @@ class DeepSeekService:
     def chat_json(
         user_prompt: str,
         module: str | None = None,
-        task_type: str | None = None
+        task_type: str | None = None,
+        prompt_template_key: str | None = None,
+        prompt_version: str | None = None
     ) -> dict[str, Any]:
         """调用 DeepSeek 对话接口并返回 JSON 对象。"""
         start_time = time.perf_counter()
@@ -103,7 +105,9 @@ class DeepSeekService:
                 status='success',
                 error_message=None,
                 model_name=DeepSeekService.MODEL_NAME,
-                latency_ms=latency_ms
+                latency_ms=latency_ms,
+                prompt_template_key=prompt_template_key,
+                prompt_version=prompt_version
             )
             return data
         except Exception as exc:
@@ -117,6 +121,8 @@ class DeepSeekService:
                 status='failed',
                 error_message=str(exc),
                 model_name=DeepSeekService.MODEL_NAME,
-                latency_ms=latency_ms
+                latency_ms=latency_ms,
+                prompt_template_key=prompt_template_key,
+                prompt_version=prompt_version
             )
             raise

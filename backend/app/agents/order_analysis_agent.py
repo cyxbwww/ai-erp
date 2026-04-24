@@ -12,6 +12,7 @@ from app.schemas.agent import OrderAnalysisOutput
 from app.schemas.ai_chat import AIChatRequest
 from app.services.llm_service import LLMService
 from app.services.order_risk_scoring_service import OrderRiskScoringService
+from app.services.prompt_template_service import PromptTemplateService
 from app.tools.agent_query_tools import AgentQueryTools
 
 
@@ -51,10 +52,15 @@ class OrderAnalysisAgent(BaseAgent):
         scoring = OrderRiskScoringService.score(order_detail=order_detail)
 
         # 阶段2：LLM 解释（不参与评分，仅补充解释与建议）。
-        prompt = AgentPrompts.build_order_analysis_prompt(
-            order_detail=order_detail,
-            rule_scoring=scoring,
-            user_message=request.user_message
+        # 订单分析 Prompt 已接入 PromptTemplateService，规则评分和输出结构仍保持原逻辑。
+        prompt_template_key = 'order_analysis'
+        prompt = PromptTemplateService.render_template(
+            prompt_template_key,
+            {
+                'user_message': request.user_message,
+                'order_detail': order_detail,
+                'rule_scoring': scoring
+            }
         )
         llm_fallback = {
             'order_status': self._default_order_status(scoring['risk_level']),
@@ -67,7 +73,9 @@ class OrderAnalysisAgent(BaseAgent):
             fallback_data=llm_fallback,
             # 订单分析调用用于解释规则评分结果，日志按订单分析任务归类。
             module='order',
-            task_type='order_analysis'
+            task_type='order_analysis',
+            prompt_template_key=prompt_template_key,
+            prompt_version=PromptTemplateService.get_template_version(prompt_template_key)
         )
 
         normalized = self._normalize(scoring=scoring, llm_data=llm_data)

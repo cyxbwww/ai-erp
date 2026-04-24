@@ -126,6 +126,7 @@
                   <n-tag size="small" :type="getFollowTypeTagType(item.follow_type || '')">
                     {{ getFollowTypeLabel(item.follow_type || '') }}
                   </n-tag>
+                  <n-tag v-if="item.source_type === 'ai_adopted'" size="small" type="success">AI采纳</n-tag>
                   <span class="timeline-user">跟进人：{{ item.follow_user_name || '-' }}</span>
                 </n-space>
                 <n-space>
@@ -171,6 +172,16 @@
           @retry="handleRunMultiAgentAnalysis"
           @task-created="handleTaskCreated"
         />
+        <div v-if="hasFollowAdvice" class="ai-adopt-area">
+          <n-button
+            type="primary"
+            :loading="adoptingFollowAdvice"
+            :disabled="adoptingFollowAdvice || isCurrentAdviceAdopted"
+            @click="handleAdoptFollowAdvice"
+          >
+            {{ isCurrentAdviceAdopted ? '已采纳' : '采纳为跟进记录' }}
+          </n-button>
+        </div>
       </n-card>
 
     </div>
@@ -319,6 +330,7 @@ const detailLoading = ref(false)
 const followLoading = ref(false)
 const followSubmitLoading = ref(false)
 const multiAgentLoading = ref(false)
+const adoptingFollowAdvice = ref(false)
 const relatedOrderLoading = ref(false)
 const taskLoading = ref(false)
 
@@ -327,6 +339,7 @@ const detail = ref<CustomerItem | null>(null)
 const followList = ref<CustomerFollowRecordItem[]>([])
 const multiAgentResult = ref<AIChatResult | null>(null)
 const multiAgentError = ref('')
+const adoptedFollowAdviceKeys = ref<string[]>([])
 
 // 关联订单与操作记录
 const relatedOrders = ref<OrderListItem[]>([])
@@ -393,6 +406,43 @@ const followCountValue = computed(() => Number(followPagination.total || 0) || f
 
 // 重点客户判断：VIP 与战略客户视为重点客户。
 const isKeyCustomer = computed(() => detail.value?.level === 'vip' || detail.value?.level === 'strategic')
+
+// 从 AI 结果中提取客户洞察数据，用于拼装“AI 建议采纳”跟进记录。
+const customerInsightData = computed<Record<string, any>>(() => {
+  const data = multiAgentResult.value?.agent_outputs?.customer_insight_agent
+  return data && typeof data === 'object' ? (data as Record<string, any>) : {}
+})
+
+// 从 AI 结果中提取跟进策略数据，作为采纳为跟进记录的核心来源。
+const followAdviceData = computed<Record<string, any>>(() => {
+  const data = multiAgentResult.value?.agent_outputs?.followup_strategy_agent
+  return data && typeof data === 'object' ? (data as Record<string, any>) : {}
+})
+
+// 判断当前 AI 结果是否包含可采纳的跟进建议。
+const hasFollowAdvice = computed(() => {
+  const data = followAdviceData.value
+  return !!(data.strategy_summary || data.next_action || data.communication_script || data.recommended_follow_up_time)
+})
+
+// 当前 AI 建议指纹：用于防止同一条建议被重复采纳。
+const currentFollowAdviceKey = computed(() => {
+  if (!hasFollowAdvice.value) return ''
+  return JSON.stringify({
+    customer_id: customerId.value,
+    intent_level: customerInsightData.value.intent_level || '',
+    main_concerns: customerInsightData.value.main_concerns || '',
+    next_action: followAdviceData.value.next_action || '',
+    communication_script: followAdviceData.value.communication_script || '',
+    recommended_follow_up_time: followAdviceData.value.recommended_follow_up_time || ''
+  })
+})
+
+// 当前 AI 建议是否已经采纳成功。
+const isCurrentAdviceAdopted = computed(() => {
+  const key = currentFollowAdviceKey.value
+  return !!key && adoptedFollowAdviceKeys.value.includes(key)
+})
 
 // 关联订单统计信息。
 const relatedOrderSummary = computed(() => {
@@ -534,6 +584,25 @@ const safeText = (value?: string | null): string => {
   return text || '-'
 }
 
+// 将 AI 返回的字符串、数组或对象统一转成可读文本，供跟进记录内容复用。
+const aiValueToText = (value: unknown): string => {
+  if (value == null || value === '') return '-'
+  if (typeof value === 'string') return value.trim() || '-'
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) {
+    const list = value.map((item) => aiValueToText(item)).filter((item) => item && item !== '-')
+    return list.length ? list.join('；') : '-'
+  }
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>
+    if (obj.label) return aiValueToText(obj.label)
+    if (obj.name) return aiValueToText(obj.name)
+    const list = Object.values(obj).map((item) => aiValueToText(item)).filter((item) => item && item !== '-')
+    return list.length ? list.join('；') : '-'
+  }
+  return String(value)
+}
+
 // 将后端日期字符串解析为时间戳，供日期组件使用。
 const parseDateTimeToTimestamp = (value?: string | null): number | null => {
   if (!value) return null
@@ -552,6 +621,31 @@ const formatTimestampToDateTimeMinute = (value: number | null): string | null =>
   const hh = `${d.getHours()}`.padStart(2, '0')
   const mm = `${d.getMinutes()}`.padStart(2, '0')
   return `${y}-${m}-${day} ${hh}:${mm}:00`
+}
+
+// 尝试将 AI 建议的下次跟进时间规范化为后端可接收的日期时间字符串。
+const normalizeAiNextFollowTime = (value: unknown): string | null => {
+  const text = aiValueToText(value)
+  if (!text || text === '-') return null
+  const directTimestamp = parseDateTimeToTimestamp(text)
+  if (directTimestamp) return formatTimestampToDateTimeMinute(directTimestamp)
+  const matched = text.match(/\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?/)
+  if (!matched) return null
+  return formatTimestampToDateTimeMinute(parseDateTimeToTimestamp(matched[0]))
+}
+
+// 将当前 AI 跟进建议拼装成跟进记录内容，确保格式稳定便于面试演示。
+const buildAiAdoptFollowContent = (): string => {
+  const insight = customerInsightData.value
+  const advice = followAdviceData.value
+  return [
+    '【AI 建议采纳】',
+    `客户意向判断：${aiValueToText(insight.intent_level || insight.customer_stage)}`,
+    `当前关注点：${aiValueToText(insight.main_concerns || insight.risks)}`,
+    `下一步跟进建议：${aiValueToText(advice.next_action || advice.strategy_summary)}`,
+    `推荐沟通话术：${aiValueToText(advice.communication_script)}`,
+    `建议下次跟进时间：${aiValueToText(advice.recommended_follow_up_time)}`
+  ].join('\n')
 }
 
 // 重置跟进表单，避免新增/编辑状态串扰。
@@ -730,6 +824,43 @@ const handleSubmitFollow = async () => {
     message.error('保存跟进记录请求失败')
   } finally {
     followSubmitLoading.value = false
+  }
+}
+
+// 将当前 AI 跟进建议一键采纳为客户跟进记录。
+const handleAdoptFollowAdvice = async () => {
+  if (!customerId.value || !hasFollowAdvice.value || isCurrentAdviceAdopted.value || adoptingFollowAdvice.value) return
+
+  adoptingFollowAdvice.value = true
+  try {
+    const payload: CustomerFollowRecordPayload = {
+      customer_id: customerId.value,
+      follow_type: 'other',
+      content: buildAiAdoptFollowContent(),
+      result: '已采纳 AI 跟进建议',
+      next_follow_time: normalizeAiNextFollowTime(followAdviceData.value.recommended_follow_up_time),
+      // AI 采纳闭环显式标记来源，便于后续统计与审计区分手动跟进记录。
+      source_type: 'ai_adopted',
+      source_module: 'customer_ai'
+    }
+    const res = await customerFollowRecordCreateApi(payload)
+    if (res.data.code !== 0) {
+      message.error(res.data.message || '采纳 AI 跟进建议失败')
+      return
+    }
+
+    if (currentFollowAdviceKey.value) {
+      adoptedFollowAdviceKeys.value = [...adoptedFollowAdviceKeys.value, currentFollowAdviceKey.value]
+    }
+    message.success('已采纳为跟进记录')
+    appendOperationLog('AI', '采纳 AI 跟进建议为跟进记录')
+    followPagination.page = 1
+    await fetchFollowList()
+    await fetchDetail()
+  } catch (_error) {
+    message.error('采纳 AI 跟进建议请求失败')
+  } finally {
+    adoptingFollowAdvice.value = false
   }
 }
 
@@ -917,6 +1048,14 @@ onMounted(async () => {
 .ai-panels > * {
   flex: 1 1 0;
   min-width: 0;
+}
+
+.ai-adopt-area {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #edf0f5;
 }
 
 .ai-panel-card {

@@ -23,7 +23,9 @@ const menuOptions: MenuOption[] = [
   { label: '客户管理', key: '/customer' },
   { label: '商品管理', key: '/product' },
   { label: '订单管理', key: '/order' },
-  { label: '知识库助手', key: '/knowledge-base' }
+  { label: '知识库助手', key: '/knowledge-base' },
+  { label: 'AI 调用日志', key: '/ai-call-log' },
+  { label: 'Prompt 模板', key: '/prompt-template' }
 ]
 
 // 根据当前路由计算菜单激活项。
@@ -31,6 +33,8 @@ const activeKey = computed(() => {
   if (route.path.startsWith('/customer')) return '/customer'
   if (route.path.startsWith('/product')) return '/product'
   if (route.path.startsWith('/knowledge-base')) return '/knowledge-base'
+  if (route.path.startsWith('/ai-call-log')) return '/ai-call-log'
+  if (route.path.startsWith('/prompt-template')) return '/prompt-template'
   if (route.path.startsWith('/order')) return '/order'
   if (route.path.startsWith('/dashboard')) return '/dashboard'
   return route.path

@@ -9,6 +9,8 @@ class AiCallLogListItem(BaseModel):
     id: int
     module: str | None = None
     task_type: str | None = None
+    prompt_template_key: str | None = None
+    prompt_version: str | None = None
     prompt: str
     response: str | None = None
     status: str
@@ -24,6 +26,8 @@ class AiCallLogDetail(BaseModel):
     id: int
     module: str | None = None
     task_type: str | None = None
+    prompt_template_key: str | None = None
+    prompt_version: str | None = None
     prompt: str
     response: str | None = None
     status: str

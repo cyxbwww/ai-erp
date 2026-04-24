@@ -57,6 +57,55 @@ def _migrate_customer_table() -> None:
 
 _migrate_customer_table()
 
+
+def _migrate_customer_follow_record_table() -> None:
+    """为历史数据库补齐 customer_follow_records 来源追踪字段。"""
+    alter_sql_map = {
+        'source_type': "ALTER TABLE customer_follow_records ADD COLUMN source_type VARCHAR(30) DEFAULT 'manual'",
+        'source_module': 'ALTER TABLE customer_follow_records ADD COLUMN source_module VARCHAR(60)',
+        'source_ref_id': 'ALTER TABLE customer_follow_records ADD COLUMN source_ref_id INTEGER'
+    }
+
+    with engine.begin() as conn:
+        table_exists = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='customer_follow_records'")
+        ).fetchone()
+        if not table_exists:
+            return
+
+        columns = conn.execute(text('PRAGMA table_info(customer_follow_records)')).fetchall()
+        existing = {row[1] for row in columns}
+        for col, sql in alter_sql_map.items():
+            if col not in existing:
+                conn.execute(text(sql))
+
+
+_migrate_customer_follow_record_table()
+
+
+def _migrate_ai_call_log_table() -> None:
+    """为历史数据库补齐 ai_call_logs 的 Prompt 模板追踪字段。"""
+    alter_sql_map = {
+        'prompt_template_key': 'ALTER TABLE ai_call_logs ADD COLUMN prompt_template_key VARCHAR(100)',
+        'prompt_version': 'ALTER TABLE ai_call_logs ADD COLUMN prompt_version VARCHAR(30)'
+    }
+
+    with engine.begin() as conn:
+        table_exists = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='ai_call_logs'")
+        ).fetchone()
+        if not table_exists:
+            return
+
+        columns = conn.execute(text('PRAGMA table_info(ai_call_logs)')).fetchall()
+        existing = {row[1] for row in columns}
+        for col, sql in alter_sql_map.items():
+            if col not in existing:
+                conn.execute(text(sql))
+
+
+_migrate_ai_call_log_table()
+
 app = FastAPI(title=settings.app_name, version=settings.app_version)
 
 app.add_middleware(

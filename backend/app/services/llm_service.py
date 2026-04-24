@@ -75,7 +75,9 @@ class LLMService:
         fallback_data: dict[str, Any],
         temperature: float = 0.2,
         module: str | None = None,
-        task_type: str | None = None
+        task_type: str | None = None,
+        prompt_template_key: str | None = None,
+        prompt_version: str | None = None
     ) -> dict[str, Any]:
         """调用 LLM 返回 JSON，并将调用结果写入 ai_call_logs。"""
         # fallback_data 保留用于兼容现有调用签名；失败场景按本次日志要求继续抛出异常。
@@ -108,7 +110,9 @@ class LLMService:
                 status='success',
                 error_message=None,
                 model_name=settings.deepseek_model,
-                latency_ms=latency_ms
+                latency_ms=latency_ms,
+                prompt_template_key=prompt_template_key,
+                prompt_version=prompt_version
             )
             return parsed
         except Exception as exc:
@@ -122,7 +126,9 @@ class LLMService:
                 status='failed',
                 error_message=str(exc),
                 model_name=settings.deepseek_model,
-                latency_ms=latency_ms
+                latency_ms=latency_ms,
+                prompt_template_key=prompt_template_key,
+                prompt_version=prompt_version
             )
             raise
 

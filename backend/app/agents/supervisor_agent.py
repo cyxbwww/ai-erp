@@ -10,6 +10,7 @@ from app.agents.base_agent import BaseAgent
 from app.prompts.agent_prompts import AgentPrompts
 from app.schemas.ai_chat import AIChatRequest
 from app.services.llm_service import LLMService
+from app.services.prompt_template_service import PromptTemplateService
 
 
 class SupervisorAgent(BaseAgent):
@@ -123,6 +124,7 @@ class SupervisorAgent(BaseAgent):
 
     def _build_plan_by_llm(self, request: AIChatRequest) -> dict[str, Any]:
         """模型兜底规划：仅在规则无法覆盖时启用。"""
+        prompt_template_key = 'supervisor_plan'
         prompt = (
             f'{AgentPrompts.SUPERVISOR_ROUTE_PROMPT}\n'
             f'场景：{request.scene}\n'
@@ -136,7 +138,9 @@ class SupervisorAgent(BaseAgent):
             fallback_data=fallback,
             # Supervisor 兜底路由属于 AI 编排规划调用，便于和业务 Agent 调用区分。
             module='ai',
-            task_type='supervisor_plan'
+            task_type='supervisor_plan',
+            prompt_template_key=prompt_template_key,
+            prompt_version=PromptTemplateService.get_template_version(prompt_template_key) or 'v1'
         )
 
         valid_agents = {

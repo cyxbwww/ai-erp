@@ -12,6 +12,7 @@ from app.schemas.agent import CustomerInsightOutput
 from app.schemas.ai_chat import AIChatRequest
 from app.services.llm_service import LLMService
 from app.services.memory_service import MemoryService
+from app.services.prompt_template_service import PromptTemplateService
 from app.tools.agent_query_tools import AgentQueryTools
 
 
@@ -56,10 +57,15 @@ class CustomerInsightAgent(BaseAgent):
         )
         memory_context = MemoryService.format_memories_for_prompt(memories)
 
-        prompt = AgentPrompts.build_customer_insight_prompt(
-            context=context,
-            user_message=request.user_message,
-            memory_context=memory_context
+        # 客户跟进总结 Prompt 已接入 PromptTemplateService，便于后续统一维护和版本化。
+        prompt_template_key = 'customer_follow_summary'
+        prompt = PromptTemplateService.render_template(
+            prompt_template_key,
+            {
+                'user_message': request.user_message,
+                'customer_context': context,
+                'memory_context': memory_context or '无历史记忆'
+            }
         )
         fallback = self._build_fallback(context=context)
 
@@ -69,7 +75,9 @@ class CustomerInsightAgent(BaseAgent):
             fallback_data=fallback,
             # 客户洞察用于沉淀客户跟进总结，日志按客户模块归类。
             module='customer',
-            task_type='follow_summary'
+            task_type='follow_summary',
+            prompt_template_key=prompt_template_key,
+            prompt_version=PromptTemplateService.get_template_version(prompt_template_key)
         )
         normalized = self._normalize(llm_data)
         output = normalized.model_dump()

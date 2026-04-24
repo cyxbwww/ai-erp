@@ -13,6 +13,7 @@ from app.schemas.agent import FollowupStrategyOutput
 from app.schemas.ai_chat import AIChatRequest
 from app.services.llm_service import LLMService
 from app.services.memory_service import MemoryService
+from app.services.prompt_template_service import PromptTemplateService
 from app.tools.agent_query_tools import AgentQueryTools
 
 
@@ -54,12 +55,17 @@ class FollowupStrategyAgent(BaseAgent):
         memory_context = MemoryService.format_memories_for_prompt(memories)
 
         fallback = self._build_fallback(customer_insight=customer_insight)
-        prompt = AgentPrompts.build_followup_strategy_prompt(
-            user_message=request.user_message,
-            customer_context=customer_context,
-            customer_insight=customer_insight,
-            knowledge_support=knowledge_support,
-            memory_context=memory_context
+        # 跟进建议 Prompt 已接入 PromptTemplateService，后续可在统一模板服务中迭代提示词。
+        prompt_template_key = 'customer_follow_advice'
+        prompt = PromptTemplateService.render_template(
+            prompt_template_key,
+            {
+                'user_message': request.user_message,
+                'customer_context': customer_context,
+                'customer_insight': customer_insight,
+                'knowledge_support': knowledge_support,
+                'memory_context': memory_context or '无历史记忆'
+            }
         )
         llm_data = LLMService.chat_json(
             system_prompt=AgentPrompts.AGENT_JSON_SYSTEM_PROMPT,
@@ -67,7 +73,9 @@ class FollowupStrategyAgent(BaseAgent):
             fallback_data=fallback,
             # 跟进策略属于客户 AI 跟进建议，日志按客户模块归类。
             module='customer',
-            task_type='follow_advice'
+            task_type='follow_advice',
+            prompt_template_key=prompt_template_key,
+            prompt_version=PromptTemplateService.get_template_version(prompt_template_key)
         )
         normalized = self._normalize(llm_data)
         output = normalized.model_dump()

@@ -100,6 +100,73 @@
 
 ---
 
+## AI 工程化能力
+
+当前项目不仅展示 AI 调用结果，也补充了围绕 AI 调用链路的观测、复盘、模板管理和业务闭环能力，便于在面试中说明 AI 功能如何从 Demo 走向可维护的业务系统。
+
+### 1) AI 调用可观测
+
+- 后端新增 `ai_call_logs` 表，用于记录每次 AI 调用的模块、任务类型、状态、耗时、错误信息、模型名称、Prompt 模板 key 和 Prompt 版本。  
+- `DeepSeekService.chat_json` 和 `LLMService.chat_json` 已统一接入 AI 调用日志，成功写入 `success`，失败写入 `failed`，并保留原异常抛出行为。  
+- 业务调用点已补充 `module` / `task_type`，例如客户跟进建议、客户跟进总结、订单分析、知识库问答等。
+
+### 2) AI 调用日志页面
+
+- 前端新增“AI 调用日志”页面，用于查看 AI 调用记录。  
+- 支持按模块、状态、关键词筛选，支持分页、刷新和详情查看。  
+- 详情弹窗展示完整 `prompt`、`response`、`error_message`，并展示 `prompt_template_key` / `prompt_version`，方便追踪一次调用使用了哪个 Prompt 模板。
+
+### 3) AI 效果统计
+
+- AI 调用日志页面顶部提供统计卡片，展示 AI 调用总次数、成功率、失败次数、平均耗时、客户 AI 采纳次数和客户 AI 采纳率。  
+- 后端统计口径基于真实日志与跟进记录来源字段计算，包括 `ai_call_logs` 和 `customer_follow_records.source_type='ai_adopted'`。
+
+### 4) AI 调用复盘
+
+- AI 调用日志详情弹窗中增加“调用复盘”区域。  
+- 前端根据 `status`、`error_message`、`response` 做轻量规则诊断，例如 API Key 未配置、JSON 格式异常、超时、限流、无有效响应等。  
+- 复盘内容包括结论、可能原因和建议处理，便于快速定位常见 AI 调用问题。
+
+### 5) Prompt 模板管理
+
+- 后端新增 `PromptTemplateService`，当前使用 Python 字典维护模板，不依赖数据库。  
+- 模板包含 `template_key`、模块、任务类型、名称、描述、版本、`system_prompt` 和 `user_prompt_template`。  
+- 已注册模板包括：
+  - `customer_follow_advice`
+  - `customer_follow_summary`
+  - `order_analysis`
+  - `knowledge_base_rag_answer`
+  - `supervisor_plan`
+- 服务支持模板列表、模板详情和变量渲染，缺少变量时返回清晰错误，便于定位 Prompt 维护问题。
+
+### 6) Prompt 模板查看页
+
+- 前端新增“Prompt 模板”只读页面。  
+- 支持按模块、任务类型和关键词筛选模板列表。  
+- 详情弹窗展示 `system_prompt` 和 `user_prompt_template`，并保留换行代码块样式，方便查看和复制。
+
+### 7) Prompt 版本追踪与模板效果统计
+
+- 每次 AI 调用日志可记录 `prompt_template_key` 和 `prompt_version`，用于追踪调用结果与 Prompt 版本的关系。  
+- 后端提供按 Prompt 模板维度的效果统计，按模板 key、版本、模块、任务类型聚合调用次数、成功次数、失败次数、成功率和平均耗时。  
+- 前端在 Prompt 模板页面展示“模板效果统计”表格，便于比较不同模板和版本的调用表现。
+
+### 8) AI 建议采纳闭环
+
+- 客户详情页的 AI 跟进建议支持一键“采纳为跟进记录”。  
+- 采纳后会复用客户跟进记录创建接口，将 AI 建议转为正式跟进记录，并刷新跟进记录列表。  
+- 跟进记录新增来源追踪字段：`source_type`、`source_module`、`source_ref_id`。AI 采纳生成的记录会标记 `source_type='ai_adopted'`，并在列表中展示“AI采纳”标签。
+
+### 面试展示重点
+
+- 这个项目不只是调用大模型返回文本，而是将 AI 调用纳入可查询、可统计、可复盘的工程化链路。  
+- AI 结果可以进入客户跟进业务闭环，形成“AI 建议 -> 人工采纳 -> 业务记录”的可追踪流程。  
+- Prompt 不再完全散落在业务代码中，已通过 `PromptTemplateService` 开始按模板 key、任务类型和版本统一管理。  
+- AI 调用日志和 Prompt 版本关联后，可以按模板维度观察成功率、失败次数和平均耗时，为后续 Prompt 优化提供依据。  
+- 当前实现保持最小可用，不夸大为完整 MLOps 平台，但已经覆盖了业务 AI 落地中常见的日志、统计、复盘、模板和采纳闭环。
+
+---
+
 ## 技术栈
 
 ### 前端
@@ -205,6 +272,9 @@ npm run dev
 - 登录鉴权（JWT + refresh）。  
 - 客户/订单 AI 结构化分析接口（含 fallback）。  
 - 知识库助手最小 RAG 链路（文档读取、切分、检索、答案与证据返回）。  
+- AI 调用日志、日志查询页面、效果统计、调用复盘和 Prompt 模板只读管理。  
+- 客户 AI 跟进建议采纳为跟进记录，并通过 `source_type='ai_adopted'` 追踪来源。  
+- Prompt 模板 key / version 已写入 AI 调用日志，并支持按模板维度统计调用效果。  
 - 多处业务联动和状态展示增强。  
 
 ### 演示/本地持久化/前端聚合部分

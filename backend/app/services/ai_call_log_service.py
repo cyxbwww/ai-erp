@@ -2,11 +2,12 @@
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import desc, func, or_
+from sqlalchemy import case, desc, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.models.ai_call_log import AiCallLog
+from app.models.customer_follow_record import CustomerFollowRecord
 
 
 class AiCallLogService:
@@ -22,7 +23,9 @@ class AiCallLogService:
         status: str,
         error_message: str | None,
         model_name: str,
-        latency_ms: int | None
+        latency_ms: int | None,
+        prompt_template_key: str | None = None,
+        prompt_version: str | None = None
     ) -> None:
         """写入 AI 调用日志：日志失败不影响原业务结果。"""
         db = SessionLocal()
@@ -37,7 +40,9 @@ class AiCallLogService:
                     status=status,
                     error_message=error_message,
                     model_name=model_name,
-                    latency_ms=latency_ms
+                    latency_ms=latency_ms,
+                    prompt_template_key=prompt_template_key,
+                    prompt_version=prompt_version
                 )
             )
             db.commit()
@@ -110,6 +115,93 @@ class AiCallLogService:
         return AiCallLogService.serialize(record, truncate=False)
 
     @staticmethod
+    def get_summary(db: Session) -> dict:
+        """汇总 AI 效果统计：统计调用成功率、耗时与客户 AI 采纳转化。"""
+        total_calls = db.query(func.count(AiCallLog.id)).scalar() or 0
+        success_calls = db.query(func.count(AiCallLog.id)).filter(AiCallLog.status == 'success').scalar() or 0
+        failed_calls = db.query(func.count(AiCallLog.id)).filter(AiCallLog.status == 'failed').scalar() or 0
+        avg_latency = (
+            db.query(func.avg(AiCallLog.latency_ms))
+            .filter(AiCallLog.latency_ms.is_not(None))
+            .scalar()
+        )
+        customer_follow_advice_calls = (
+            db.query(func.count(AiCallLog.id))
+            .filter(
+                AiCallLog.module == 'customer',
+                AiCallLog.task_type == 'follow_advice',
+                AiCallLog.status == 'success'
+            )
+            .scalar()
+            or 0
+        )
+        customer_ai_adopted_count = (
+            db.query(func.count(CustomerFollowRecord.id))
+            .filter(CustomerFollowRecord.source_type == 'ai_adopted')
+            .scalar()
+            or 0
+        )
+
+        # 百分比口径统一保留 1 位小数，分母为 0 时按 0 返回。
+        success_rate = round(success_calls / total_calls * 100, 1) if total_calls else 0
+        adoption_rate = round(customer_ai_adopted_count / customer_follow_advice_calls * 100, 1) if customer_follow_advice_calls else 0
+
+        return {
+            'total_calls': total_calls,
+            'success_calls': success_calls,
+            'failed_calls': failed_calls,
+            'success_rate': success_rate,
+            'avg_latency_ms': round(float(avg_latency), 1) if avg_latency is not None else 0,
+            'customer_follow_advice_calls': customer_follow_advice_calls,
+            'customer_ai_adopted_count': customer_ai_adopted_count,
+            'customer_ai_adoption_rate': adoption_rate
+        }
+
+    @staticmethod
+    def get_prompt_summary(db: Session) -> list[dict]:
+        """按 Prompt 模板维度统计调用效果。"""
+        rows = (
+            db.query(
+                AiCallLog.prompt_template_key.label('prompt_template_key'),
+                AiCallLog.prompt_version.label('prompt_version'),
+                AiCallLog.module.label('module'),
+                AiCallLog.task_type.label('task_type'),
+                func.count(AiCallLog.id).label('total_calls'),
+                func.sum(case((AiCallLog.status == 'success', 1), else_=0)).label('success_calls'),
+                func.sum(case((AiCallLog.status == 'failed', 1), else_=0)).label('failed_calls'),
+                func.avg(AiCallLog.latency_ms).label('avg_latency_ms')
+            )
+            .filter(AiCallLog.prompt_template_key.is_not(None), AiCallLog.prompt_template_key != '')
+            .group_by(
+                AiCallLog.prompt_template_key,
+                AiCallLog.prompt_version,
+                AiCallLog.module,
+                AiCallLog.task_type
+            )
+            .order_by(desc('total_calls'))
+            .all()
+        )
+
+        results: list[dict] = []
+        for row in rows:
+            total_calls = int(row.total_calls or 0)
+            success_calls = int(row.success_calls or 0)
+            failed_calls = int(row.failed_calls or 0)
+            success_rate = round(success_calls / total_calls * 100, 1) if total_calls else 0
+            results.append({
+                'prompt_template_key': row.prompt_template_key,
+                'prompt_version': row.prompt_version,
+                'module': row.module,
+                'task_type': row.task_type,
+                'total_calls': total_calls,
+                'success_calls': success_calls,
+                'failed_calls': failed_calls,
+                'success_rate': success_rate,
+                'avg_latency_ms': round(float(row.avg_latency_ms)) if row.avg_latency_ms is not None else 0
+            })
+        return results
+
+    @staticmethod
     def serialize(record: AiCallLog, truncate: bool = False) -> dict:
         """数据库对象转接口返回结构，列表场景会截断长文本。"""
         prompt = record.prompt or ''
@@ -124,6 +216,8 @@ class AiCallLogService:
             'id': record.id,
             'module': record.module,
             'task_type': record.task_type,
+            'prompt_template_key': record.prompt_template_key,
+            'prompt_version': record.prompt_version,
             'prompt': prompt,
             'response': response,
             'status': record.status,

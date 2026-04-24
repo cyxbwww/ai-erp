@@ -89,6 +89,34 @@ export const ORDER_STATUS_OPTIONS: EnumOption[] = [
 
 const ORDER_STATUS_MAP = toMap(ORDER_STATUS_OPTIONS)
 
+// AI 调用模块枚举
+export const AI_CALL_MODULE_OPTIONS: EnumOption[] = [
+  { label: '客户', value: 'customer', tagType: 'info' },
+  { label: '订单', value: 'order', tagType: 'warning' },
+  { label: '知识库', value: 'knowledge_base', tagType: 'success' },
+  { label: 'AI 编排', value: 'ai', tagType: 'primary' }
+]
+
+// AI 调用状态枚举
+export const AI_CALL_STATUS_OPTIONS: EnumOption[] = [
+  { label: '成功', value: 'success', tagType: 'success' },
+  { label: '失败', value: 'failed', tagType: 'error' }
+]
+
+// AI 调用任务类型枚举
+export const AI_CALL_TASK_TYPE_OPTIONS: EnumOption[] = [
+  { label: '跟进建议', value: 'follow_advice', tagType: 'info' },
+  { label: '跟进总结', value: 'follow_summary', tagType: 'success' },
+  { label: '跟进任务', value: 'follow_task', tagType: 'primary' },
+  { label: '订单分析', value: 'order_analysis', tagType: 'warning' },
+  { label: '知识库问答', value: 'rag_answer', tagType: 'success' },
+  { label: 'AI 编排规划', value: 'supervisor_plan', tagType: 'primary' }
+]
+
+const AI_CALL_MODULE_MAP = toMap(AI_CALL_MODULE_OPTIONS)
+const AI_CALL_STATUS_MAP = toMap(AI_CALL_STATUS_OPTIONS)
+const AI_CALL_TASK_TYPE_MAP = toMap(AI_CALL_TASK_TYPE_OPTIONS)
+
 // 客户等级中文名称
 export const getCustomerLevelLabel = (value: string) => CUSTOMER_LEVEL_MAP[value]?.label || value || '-'
 // 客户状态中文名称
@@ -124,3 +152,16 @@ export const getProductStatusTagType = (value: string) => PRODUCT_STATUS_MAP[val
 export const getOrderStatusLabel = (value: string) => ORDER_STATUS_MAP[value]?.label || value || '-'
 // 订单状态标签类型
 export const getOrderStatusTagType = (value: string) => ORDER_STATUS_MAP[value]?.tagType || 'default'
+
+// AI 调用模块中文名称
+export const getAiCallModuleLabel = (value: string) => AI_CALL_MODULE_MAP[value]?.label || value || '-'
+// AI 调用模块标签类型
+export const getAiCallModuleTagType = (value: string) => AI_CALL_MODULE_MAP[value]?.tagType || 'default'
+// AI 调用状态中文名称
+export const getAiCallStatusLabel = (value: string) => AI_CALL_STATUS_MAP[value]?.label || value || '-'
+// AI 调用状态标签类型
+export const getAiCallStatusTagType = (value: string) => AI_CALL_STATUS_MAP[value]?.tagType || 'default'
+// AI 调用任务类型中文名称
+export const getAiCallTaskTypeLabel = (value: string) => AI_CALL_TASK_TYPE_MAP[value]?.label || value || '-'
+// AI 调用任务类型标签类型
+export const getAiCallTaskTypeTagType = (value: string) => AI_CALL_TASK_TYPE_MAP[value]?.tagType || 'default'

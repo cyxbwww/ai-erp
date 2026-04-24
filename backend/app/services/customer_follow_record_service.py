@@ -67,6 +67,9 @@ class CustomerFollowRecordService:
             content=payload.content,
             result=payload.result,
             next_follow_time=CustomerFollowRecordService._parse_datetime(payload.next_follow_time),
+            source_type=CustomerFollowRecordService._normalize_source_type(payload.source_type),
+            source_module=(payload.source_module or '').strip() or None,
+            source_ref_id=payload.source_ref_id,
             follow_user_id=current_user.id
         )
         db.add(record)
@@ -87,6 +90,13 @@ class CustomerFollowRecordService:
         record.content = payload.content
         record.result = payload.result
         record.next_follow_time = CustomerFollowRecordService._parse_datetime(payload.next_follow_time)
+        # 来源字段通常由创建动作确定；编辑接口仅在显式传入时更新，避免旧页面编辑时覆盖 AI 采纳来源。
+        if payload.source_type is not None:
+            record.source_type = CustomerFollowRecordService._normalize_source_type(payload.source_type)
+        if payload.source_module is not None:
+            record.source_module = payload.source_module.strip() or None
+        if payload.source_ref_id is not None:
+            record.source_ref_id = payload.source_ref_id
         # 更新时记录操作人，便于后续审计追踪。
         record.follow_user_id = current_user.id
 
@@ -118,10 +128,21 @@ class CustomerFollowRecordService:
             'content': record.content,
             'result': record.result,
             'next_follow_time': record.next_follow_time.strftime('%Y-%m-%d %H:%M:%S') if record.next_follow_time else '',
+            'source_type': record.source_type or 'manual',
+            'source_module': record.source_module or '',
+            'source_ref_id': record.source_ref_id,
             'follow_user_id': record.follow_user_id,
             'follow_user_name': follow_user.username if follow_user else '',
             'created_at': record.created_at.strftime('%Y-%m-%d %H:%M:%S') if record.created_at else ''
         }
+
+    @staticmethod
+    def _normalize_source_type(value: str | None) -> str:
+        """标准化来源类型，防止前端传入未约定值影响列表展示。"""
+        clean_value = (value or 'manual').strip()
+        if clean_value in {'manual', 'ai_adopted'}:
+            return clean_value
+        return 'manual'
 
     @staticmethod
     def _parse_datetime(value: str | None) -> datetime | None:

@@ -60,6 +60,9 @@ export interface CustomerFollowRecordItem {
   content: string
   result: string
   next_follow_time: string
+  source_type: string
+  source_module: string
+  source_ref_id: number | null
   follow_user_id: number
   follow_user_name: string
   created_at: string
@@ -82,6 +85,9 @@ export interface CustomerFollowRecordPayload {
   content: string
   result: string
   next_follow_time?: string | null
+  source_type?: string
+  source_module?: string | null
+  source_ref_id?: number | null
 }
 
 // 获取客户列表（搜索 + 分页）

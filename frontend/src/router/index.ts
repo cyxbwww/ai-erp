@@ -45,6 +45,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '知识库助手', menuKey: 'knowledge-base', permission: 'dashboard:view' }
       },
       {
+        path: 'ai-call-log',
+        name: 'AiCallLog',
+        component: () => import('@/views/ai-call-log/index.vue'),
+        meta: { title: 'AI 调用日志', menuKey: 'ai-call-log', permission: 'dashboard:view' }
+      },
+      {
+        path: 'prompt-template',
+        name: 'PromptTemplate',
+        component: () => import('@/views/prompt-template/index.vue'),
+        meta: { title: 'Prompt 模板', menuKey: 'prompt-template', permission: 'dashboard:view' }
+      },
+      {
         path: 'order',
         name: 'Order',
         component: () => import('@/views/order/index.vue'),

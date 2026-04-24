@@ -19,6 +19,10 @@ class AiCallLog(Base):
     module: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True, comment='AI 调用所属业务模块')
     # 任务类型：follow_advice/order_analysis/rag_answer 等，可为空
     task_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True, comment='AI 调用任务类型')
+    # Prompt 模板 key：记录本次调用使用的模板，可为空
+    prompt_template_key: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True, comment='Prompt 模板 key')
+    # Prompt 模板版本：记录本次调用使用的模板版本，可为空
+    prompt_version: Mapped[str | None] = mapped_column(String(30), nullable=True, comment='Prompt 模板版本')
     # 用户提示词：记录传给模型的 user_prompt
     prompt: Mapped[str] = mapped_column(Text, default='', comment='传给模型的用户提示词')
     # 模型返回内容：成功时记录原始返回文本或解析后的 JSON 字符串

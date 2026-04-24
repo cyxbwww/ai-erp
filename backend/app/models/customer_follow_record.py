@@ -25,6 +25,12 @@ class CustomerFollowRecord(Base):
     result: Mapped[str] = mapped_column(String(255), default='', comment='本次跟进结果摘要')
     # 下次跟进时间
     next_follow_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, comment='下次计划跟进时间')
+    # 来源类型：manual/ai_adopted
+    source_type: Mapped[str] = mapped_column(String(30), default='manual', index=True, comment='跟进记录来源类型')
+    # 来源模块：例如 customer_ai，可为空
+    source_module: Mapped[str | None] = mapped_column(String(60), nullable=True, comment='跟进记录来源模块')
+    # 来源引用编号：预留关联 AI 任务或 AI 调用日志，可为空
+    source_ref_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True, comment='来源引用编号')
     # 跟进人编号
     follow_user_id: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), index=True, comment='执行跟进的用户编号')
     # 创建时间

@@ -17,6 +17,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sklearn.feature_extraction.text import HashingVectorizer
 
 from app.services.deepseek_service import DeepSeekService
+from app.services.prompt_template_service import PromptTemplateService
 
 
 class HashingEmbeddings(Embeddings):
@@ -459,8 +460,15 @@ class KnowledgeRAGService:
             f'知识片段：\n{chr(10).join(context_lines)}'
         )
 
-        # 记录知识库问答的 AI 调用来源，便于 ai_call_logs 按模块和任务类型追踪。
-        data = DeepSeekService.chat_json(prompt, module='knowledge_base', task_type='rag_answer')
+        # 记录知识库问答的 AI 调用来源和 Prompt 模板信息，便于 ai_call_logs 追踪模板版本。
+        prompt_template_key = 'knowledge_base_rag_answer'
+        data = DeepSeekService.chat_json(
+            prompt,
+            module='knowledge_base',
+            task_type='rag_answer',
+            prompt_template_key=prompt_template_key,
+            prompt_version=PromptTemplateService.get_template_version(prompt_template_key) or 'v1'
+        )
         answer = str(data.get('answer', '')).strip()
         basis_raw = data.get('basis', [])
         basis = [str(item).strip() for item in basis_raw] if isinstance(basis_raw, list) else []

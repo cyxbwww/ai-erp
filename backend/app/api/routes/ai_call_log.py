@@ -40,6 +40,26 @@ def ai_call_log_list(
     return api_success(data)
 
 
+@router.get('/summary')
+def ai_call_log_summary(
+    _current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """AI 效果统计接口：返回全局调用成功率、平均耗时与客户采纳转化。"""
+    data = AiCallLogService.get_summary(db=db)
+    return api_success(data)
+
+
+@router.get('/prompt-summary')
+def ai_call_log_prompt_summary(
+    _current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Prompt 模板效果统计接口：按模板 key、版本、模块和任务类型聚合调用效果。"""
+    data = AiCallLogService.get_prompt_summary(db=db)
+    return api_success(data)
+
+
 @router.get('/{log_id}')
 def ai_call_log_detail(
     log_id: int,
