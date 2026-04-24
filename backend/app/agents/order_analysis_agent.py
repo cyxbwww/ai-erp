@@ -64,7 +64,10 @@ class OrderAnalysisAgent(BaseAgent):
         llm_data = LLMService.chat_json(
             system_prompt=AgentPrompts.AGENT_JSON_SYSTEM_PROMPT,
             user_prompt=prompt,
-            fallback_data=llm_fallback
+            fallback_data=llm_fallback,
+            # 订单分析调用用于解释规则评分结果，日志按订单分析任务归类。
+            module='order',
+            task_type='order_analysis'
         )
 
         normalized = self._normalize(scoring=scoring, llm_data=llm_data)

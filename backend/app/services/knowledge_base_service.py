@@ -459,7 +459,8 @@ class KnowledgeRAGService:
             f'知识片段：\n{chr(10).join(context_lines)}'
         )
 
-        data = DeepSeekService.chat_json(prompt)
+        # 记录知识库问答的 AI 调用来源，便于 ai_call_logs 按模块和任务类型追踪。
+        data = DeepSeekService.chat_json(prompt, module='knowledge_base', task_type='rag_answer')
         answer = str(data.get('answer', '')).strip()
         basis_raw = data.get('basis', [])
         basis = [str(item).strip() for item in basis_raw] if isinstance(basis_raw, list) else []

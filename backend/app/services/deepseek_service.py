@@ -2,9 +2,12 @@
 
 import json
 import os
+import time
 from typing import Any
 
 from openai import OpenAI
+
+from app.services.ai_call_log_service import AiCallLogService
 
 
 class DeepSeekService:
@@ -63,24 +66,57 @@ class DeepSeekService:
         return data
 
     @staticmethod
-    def chat_json(user_prompt: str) -> dict[str, Any]:
+    def chat_json(
+        user_prompt: str,
+        module: str | None = None,
+        task_type: str | None = None
+    ) -> dict[str, Any]:
         """调用 DeepSeek 对话接口并返回 JSON 对象。"""
-        client = DeepSeekService._get_client()
-        response = client.chat.completions.create(
-            model=DeepSeekService.MODEL_NAME,
-            messages=[
-                {'role': 'system', 'content': DeepSeekService.SYSTEM_PROMPT},
-                {'role': 'user', 'content': user_prompt}
-            ],
-            temperature=0.3
-        )
+        start_time = time.perf_counter()
+        content: str | None = None
+        try:
+            client = DeepSeekService._get_client()
+            response = client.chat.completions.create(
+                model=DeepSeekService.MODEL_NAME,
+                messages=[
+                    {'role': 'system', 'content': DeepSeekService.SYSTEM_PROMPT},
+                    {'role': 'user', 'content': user_prompt}
+                ],
+                temperature=0.3
+            )
 
-        choices = response.choices or []
-        if not choices:
-            raise ValueError('AI 返回内容为空')
-        message = choices[0].message
-        content = DeepSeekService._extract_text(getattr(message, 'content', ''))
-        if not content.strip():
-            raise ValueError('AI 返回内容为空文本')
-        return DeepSeekService.parse_json(content)
-
+            choices = response.choices or []
+            if not choices:
+                raise ValueError('AI 返回内容为空')
+            message = choices[0].message
+            content = DeepSeekService._extract_text(getattr(message, 'content', ''))
+            if not content.strip():
+                raise ValueError('AI 返回内容为空文本')
+            data = DeepSeekService.parse_json(content)
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+            # 成功日志记录解析后的 JSON 字符串，便于后续检索和排查结构化结果。
+            AiCallLogService.write_log(
+                module=module,
+                task_type=task_type,
+                prompt=user_prompt,
+                response=json.dumps(data, ensure_ascii=False),
+                status='success',
+                error_message=None,
+                model_name=DeepSeekService.MODEL_NAME,
+                latency_ms=latency_ms
+            )
+            return data
+        except Exception as exc:
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+            # 失败日志记录异常信息并继续抛出原异常，保证调用方现有错误处理不变。
+            AiCallLogService.write_log(
+                module=module,
+                task_type=task_type,
+                prompt=user_prompt,
+                response=content,
+                status='failed',
+                error_message=str(exc),
+                model_name=DeepSeekService.MODEL_NAME,
+                latency_ms=latency_ms
+            )
+            raise

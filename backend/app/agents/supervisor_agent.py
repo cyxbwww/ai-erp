@@ -133,7 +133,10 @@ class SupervisorAgent(BaseAgent):
         data = LLMService.chat_json(
             system_prompt=AgentPrompts.AGENT_JSON_SYSTEM_PROMPT,
             user_prompt=prompt,
-            fallback_data=fallback
+            fallback_data=fallback,
+            # Supervisor 兜底路由属于 AI 编排规划调用，便于和业务 Agent 调用区分。
+            module='ai',
+            task_type='supervisor_plan'
         )
 
         valid_agents = {

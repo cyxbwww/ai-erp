@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import copy
 import json
 import re
+import time
 from typing import Any
 
 from openai import OpenAI
 
 from app.core.config import settings
+from app.services.ai_call_log_service import AiCallLogService
 
 
 class LLMService:
@@ -72,25 +73,58 @@ class LLMService:
         system_prompt: str,
         user_prompt: str,
         fallback_data: dict[str, Any],
-        temperature: float = 0.2
+        temperature: float = 0.2,
+        module: str | None = None,
+        task_type: str | None = None
     ) -> dict[str, Any]:
-        """调用 LLM 返回 JSON，解析失败或调用失败时返回 fallback_data。"""
-        fallback = copy.deepcopy(fallback_data)
+        """调用 LLM 返回 JSON，并将调用结果写入 ai_call_logs。"""
+        # fallback_data 保留用于兼容现有调用签名；失败场景按本次日志要求继续抛出异常。
+        _ = fallback_data
+        start_time = time.perf_counter()
+        raw: str | None = None
         try:
-            raw = LLMService.chat_text(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                fallback_text='',
+            client = LLMService._get_client()
+            response = client.chat.completions.create(
+                model=settings.deepseek_model,
+                messages=[
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user', 'content': user_prompt}
+                ],
                 temperature=temperature
             )
+            raw = LLMService._extract_message_text(response).strip()
             if not raw:
-                return fallback
+                raise ValueError('AI 返回内容为空文本')
             parsed = LLMService._extract_json_object(raw)
             if not isinstance(parsed, dict):
-                return fallback
+                raise ValueError('AI 返回结果不是 JSON 对象')
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+            # 成功日志记录解析后的 JSON 字符串，便于后续按业务来源排查模型输出。
+            AiCallLogService.write_log(
+                module=module,
+                task_type=task_type,
+                prompt=user_prompt,
+                response=json.dumps(parsed, ensure_ascii=False),
+                status='success',
+                error_message=None,
+                model_name=settings.deepseek_model,
+                latency_ms=latency_ms
+            )
             return parsed
-        except Exception:
-            return fallback
+        except Exception as exc:
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+            # 失败日志记录原始返回或异常信息，并继续抛出原异常交给上层处理。
+            AiCallLogService.write_log(
+                module=module,
+                task_type=task_type,
+                prompt=user_prompt,
+                response=raw,
+                status='failed',
+                error_message=str(exc),
+                model_name=settings.deepseek_model,
+                latency_ms=latency_ms
+            )
+            raise
 
     @staticmethod
     def _extract_json_object(text: str) -> dict[str, Any]:
@@ -154,4 +188,3 @@ class LLMService:
                         start = -1
 
         return results
-

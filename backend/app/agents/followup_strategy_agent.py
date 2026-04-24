@@ -64,7 +64,10 @@ class FollowupStrategyAgent(BaseAgent):
         llm_data = LLMService.chat_json(
             system_prompt=AgentPrompts.AGENT_JSON_SYSTEM_PROMPT,
             user_prompt=prompt,
-            fallback_data=fallback
+            fallback_data=fallback,
+            # 跟进策略属于客户 AI 跟进建议，日志按客户模块归类。
+            module='customer',
+            task_type='follow_advice'
         )
         normalized = self._normalize(llm_data)
         output = normalized.model_dump()

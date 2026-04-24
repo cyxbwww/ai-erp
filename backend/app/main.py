@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.database import Base, SessionLocal, engine
 from app.models.customer import Customer
 from app.models.customer_follow_record import CustomerFollowRecord
+from app.models.ai_call_log import AiCallLog
 from app.models.ai_record import AIRecord
 from app.models.memory_record import MemoryRecord
 from app.models.order import Order
@@ -22,6 +23,7 @@ from app.services.auth_service import AuthService
 _ = User.__tablename__
 _ = Customer.__tablename__
 _ = CustomerFollowRecord.__tablename__
+_ = AiCallLog.__tablename__
 _ = AIRecord.__tablename__
 _ = MemoryRecord.__tablename__
 _ = Product.__tablename__
