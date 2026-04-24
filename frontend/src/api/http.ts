@@ -8,7 +8,17 @@ interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean
 }
 
-const baseURL = import.meta.env.VITE_API_BASE_URL || ''
+const rawBaseURL = import.meta.env.VITE_API_BASE_URL || '/api'
+// 统一去掉末尾斜杠，避免 baseURL 与接口路径拼接时出现重复斜杠。
+const baseURL = rawBaseURL.replace(/\/$/, '')
+
+// 兼容现有 API 文件已经带 /api 前缀的写法；当 baseURL=/api 时避免请求变成 /api/api/xxx。
+const normalizeApiUrl = (url?: string) => {
+  if (!url || !baseURL.endsWith('/api') || !url.startsWith('/api/')) {
+    return url
+  }
+  return url.slice(4)
+}
 
 const http = axios.create({
   // 优先走前端同源代理，避免本地开发跨域问题。
@@ -40,7 +50,11 @@ const isAuthEndpoint = (url?: string) => {
   if (!url) {
     return false
   }
-  return url.includes('/api/auth/login') || url.includes('/api/auth/refresh')
+  // 兼容 normalizeApiUrl 处理前后的认证接口路径。
+  return url.includes('/api/auth/login')
+    || url.includes('/api/auth/refresh')
+    || url.includes('/auth/login')
+    || url.includes('/auth/refresh')
 }
 
 // 清空本地登录态并强制跳转登录页。
@@ -75,7 +89,7 @@ const refreshAccessToken = async (): Promise<string> => {
     throw new Error('refresh token 缺失')
   }
 
-  const response = await refreshClient.post('/api/auth/refresh', {
+  const response = await refreshClient.post(normalizeApiUrl('/api/auth/refresh') || '/api/auth/refresh', {
     refresh_token: refreshToken
   })
 
@@ -105,6 +119,8 @@ const refreshAccessToken = async (): Promise<string> => {
 
 // 请求拦截器：自动附加 access token。
 http.interceptors.request.use((config) => {
+  // 请求发出前统一规范 URL，确保 .env 中 VITE_API_BASE_URL=/api 时不重复拼接。
+  config.url = normalizeApiUrl(config.url)
   const accessToken = localStorage.getItem('access_token') || localStorage.getItem('token')
   const tokenType = localStorage.getItem('token_type') || 'Bearer'
   if (accessToken) {

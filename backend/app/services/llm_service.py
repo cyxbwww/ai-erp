@@ -11,6 +11,7 @@ from openai import OpenAI
 
 from app.core.config import settings
 from app.services.ai_call_log_service import AiCallLogService
+from app.services.llm_response_parser import LLMResponseParser
 
 
 class LLMService:
@@ -26,24 +27,7 @@ class LLMService:
     @staticmethod
     def _extract_message_text(response: Any) -> str:
         """从 OpenAI SDK 响应中提取文本内容。"""
-        choices = getattr(response, 'choices', []) or []
-        if not choices:
-            return ''
-        message = getattr(choices[0], 'message', None)
-        if not message:
-            return ''
-        content = getattr(message, 'content', '')
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            text_parts: list[str] = []
-            for item in content:
-                if isinstance(item, dict) and item.get('type') == 'text':
-                    text_parts.append(str(item.get('text', '')))
-                else:
-                    text_parts.append(str(item))
-            return ''.join(text_parts)
-        return str(content or '')
+        return LLMResponseParser.extract_text(response).text
 
     @staticmethod
     def chat_text(
@@ -84,6 +68,7 @@ class LLMService:
         _ = fallback_data
         start_time = time.perf_counter()
         raw: str | None = None
+        response: Any | None = None
         try:
             client = LLMService._get_client()
             response = client.chat.completions.create(
@@ -94,9 +79,8 @@ class LLMService:
                 ],
                 temperature=temperature
             )
+            # 统一解析 SDK 响应，能区分 choices/message/content 为空等具体问题。
             raw = LLMService._extract_message_text(response).strip()
-            if not raw:
-                raise ValueError('AI 返回内容为空文本')
             parsed = LLMService._extract_json_object(raw)
             if not isinstance(parsed, dict):
                 raise ValueError('AI 返回结果不是 JSON 对象')
@@ -117,12 +101,14 @@ class LLMService:
             return parsed
         except Exception as exc:
             latency_ms = int((time.perf_counter() - start_time) * 1000)
+            # 失败日志优先记录安全响应摘要，便于排查 deepseek-v4-flash 等模型的返回结构差异。
+            failed_response = LLMResponseParser.build_safe_summary_text(response) or raw
             # 失败日志记录原始返回或异常信息，并继续抛出原异常交给上层处理。
             AiCallLogService.write_log(
                 module=module,
                 task_type=task_type,
                 prompt=user_prompt,
-                response=raw,
+                response=failed_response,
                 status='failed',
                 error_message=str(exc),
                 model_name=settings.deepseek_model,

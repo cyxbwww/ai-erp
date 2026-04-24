@@ -11,9 +11,11 @@ from jose import JWTError, jwt
 
 from app.core.config import settings
 
-ALGORITHM = 'HS256'
-ACCESS_TOKEN_EXPIRE_HOURS = 8
-REFRESH_TOKEN_EXPIRE_DAYS = 7
+# JWT 配置统一来自 settings，避免安全参数散落在多个文件里。
+ALGORITHM = settings.jwt_algorithm
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.access_token_expire_minutes
+ACCESS_TOKEN_EXPIRE_HOURS = max(1, ACCESS_TOKEN_EXPIRE_MINUTES // 60)
+REFRESH_TOKEN_EXPIRE_DAYS = settings.refresh_token_expire_days
 PBKDF2_ITERATIONS = 200_000
 
 
@@ -40,18 +42,18 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 
-def build_access_token(payload: dict[str, Any], expires_hours: int = ACCESS_TOKEN_EXPIRE_HOURS) -> str:
-    """生成访问令牌，默认有效期 8 小时。"""
+def build_access_token(payload: dict[str, Any], expires_minutes: int = ACCESS_TOKEN_EXPIRE_MINUTES) -> str:
+    """生成访问令牌，默认有效期由 ACCESS_TOKEN_EXPIRE_MINUTES 控制。"""
     to_encode = payload.copy()
-    expire = datetime.now(timezone.utc) + timedelta(hours=expires_hours)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
     to_encode.update({'exp': expire, 'token_type': 'access'})
-    return jwt.encode(to_encode, settings.jwt_secret, algorithm=ALGORITHM)
+    return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=ALGORITHM)
 
 
 def decode_access_token(token: str) -> dict[str, Any] | None:
     """解析访问令牌，失败时返回 None。"""
     try:
-        return jwt.decode(token, settings.jwt_secret, algorithms=[ALGORITHM])
+        return jwt.decode(token, settings.jwt_secret_key, algorithms=[ALGORITHM])
     except JWTError:
         return None
 
@@ -61,12 +63,12 @@ def build_refresh_token(payload: dict[str, Any], expires_days: int = REFRESH_TOK
     to_encode = payload.copy()
     expire = datetime.now(timezone.utc) + timedelta(days=expires_days)
     to_encode.update({'exp': expire, 'token_type': 'refresh'})
-    return jwt.encode(to_encode, settings.jwt_secret, algorithm=ALGORITHM)
+    return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=ALGORITHM)
 
 
 def decode_refresh_token(token: str) -> dict[str, Any] | None:
     """解析刷新令牌，失败时返回 None。"""
     try:
-        return jwt.decode(token, settings.jwt_secret, algorithms=[ALGORITHM])
+        return jwt.decode(token, settings.jwt_secret_key, algorithms=[ALGORITHM])
     except JWTError:
         return None

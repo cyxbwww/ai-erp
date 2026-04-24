@@ -222,21 +222,34 @@ const reviewResult = computed((): { alertType: ReviewAlertType; conclusion: stri
     }
   }
 
-  const errorText = String(detail.error_message || '')
-  const responseText = String(detail.response || '')
-  const normalizedError = errorText.toLowerCase()
+	  const errorText = String(detail.error_message || '')
+	  const responseText = String(detail.response || '')
+	  const normalizedError = errorText.toLowerCase()
+	  // 空响应类错误：后端已增强错误信息和 response 摘要，这里优先给出结构排查建议。
+	  const hasEmptyContentError = ['空文本', 'content 为空', 'choices 为空', 'message 为空'].some((keyword) =>
+	    errorText.includes(keyword)
+	  )
 
-  if (detail.status === 'success' && responseText.trim()) {
-    return {
-      alertType: 'success',
+	  if (detail.status === 'success' && responseText.trim()) {
+	    return {
+	      alertType: 'success',
       conclusion: '调用成功',
       reason: '模型返回了有效内容',
       suggestion: '可结合业务结果判断是否需要优化 Prompt'
-    }
-  }
+	    }
+	  }
 
-  if (!responseText.trim()) {
-    return {
+	  if (hasEmptyContentError) {
+	    return {
+	      alertType: 'warning',
+	      conclusion: '模型响应为空',
+	      reason: '1. 模型返回结构与当前解析逻辑不完全兼容；2. 模型没有生成有效 content；3. Prompt 输出格式约束过强，导致没有返回 JSON 内容',
+	      suggestion: '1. 查看日志里的 response 摘要，确认 choices_count、finish_reason、content_type、content_length；2. 确认 DEEPSEEK_MODEL 是否为当前官方支持模型，例如 deepseek-v4-flash；3. 如 content 为空但有 reasoning_content，需要调整解析或提示词；4. 尝试降低 prompt 复杂度或临时切换 deepseek-chat 对比验证'
+	    }
+	  }
+
+	  if (!responseText.trim()) {
+	    return {
       alertType: detail.status === 'failed' ? 'error' : 'warning',
       conclusion: detail.status === 'failed' ? '调用失败' : '响应为空',
       reason: '模型没有返回有效内容',

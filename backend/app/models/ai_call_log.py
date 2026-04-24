@@ -31,8 +31,8 @@ class AiCallLog(Base):
     status: Mapped[str] = mapped_column(String(20), default='success', index=True, comment='AI 调用状态')
     # 错误信息：失败时记录异常描述
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True, comment='AI 调用错误信息')
-    # 模型名称：默认 deepseek-chat
-    model_name: Mapped[str] = mapped_column(String(80), default='deepseek-chat', comment='模型名称')
+    # 模型名称：默认 deepseek-v4-flash
+    model_name: Mapped[str] = mapped_column(String(80), default='deepseek-v4-flash', comment='模型名称')
     # 调用耗时：单位毫秒，可为空
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True, comment='AI 调用耗时毫秒数')
     # 创建时间

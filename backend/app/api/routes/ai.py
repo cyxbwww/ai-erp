@@ -25,6 +25,9 @@ def ai_chat(
     if not payload.user_message.strip():
         return api_error('user_message 不能为空')
 
-    data = AIChatService.chat(db=db, request=payload)
-    return api_success(data.model_dump())
-
+    try:
+        data = AIChatService.chat(db=db, request=payload)
+        return api_success(data.model_dump())
+    except Exception as exc:
+        # 编排级异常也返回统一响应结构，避免前端只能显示“请求失败”而看不到真实原因。
+        return api_error(f'多 Agent 分析失败：{exc}')

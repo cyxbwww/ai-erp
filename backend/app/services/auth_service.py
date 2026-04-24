@@ -3,7 +3,7 @@
 from sqlalchemy.orm import Session
 
 from app.core.security import (
-    ACCESS_TOKEN_EXPIRE_HOURS,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
     build_access_token,
     build_refresh_token,
     hash_password,
@@ -47,7 +47,8 @@ class AuthService:
             'access_token': access_token,
             'refresh_token': refresh_token,
             'token_type': 'Bearer',
-            'expires_in': ACCESS_TOKEN_EXPIRE_HOURS * 3600,
+            # expires_in 使用秒数返回，值统一由 ACCESS_TOKEN_EXPIRE_MINUTES 推导。
+            'expires_in': ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             # 兼容历史前端字段，避免影响既有业务代码。
             'token': access_token,
             'username': user.username,

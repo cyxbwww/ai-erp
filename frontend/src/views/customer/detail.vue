@@ -288,7 +288,7 @@ import {
   type CustomerFollowRecordPayload,
   type CustomerItem
 } from '@/api/customer'
-import { aiChatApi } from '@/api/ai'
+import { aiChatApi, getAiRequestErrorMessage } from '@/api/ai'
 import AiAnalysisPanel from '@/components/ai/AiAnalysisPanel.vue'
 import { orderListApi, type OrderListItem } from '@/api/order'
 import { taskListApi, type TaskDetail } from '@/api/task'
@@ -913,9 +913,10 @@ const handleRunMultiAgentAnalysis = async () => {
     await nextTick()
     aiPanelsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
     message.success('AI 多Agent分析完成')
-  } catch (_error) {
+  } catch (error) {
     multiAgentResult.value = null
-    multiAgentError.value = '多 Agent 分析请求失败'
+    // 请求异常时展示后端返回的真实 message，便于定位鉴权、模型和服务端错误。
+    multiAgentError.value = getAiRequestErrorMessage(error, '多 Agent 分析请求失败')
     message.error(multiAgentError.value)
   } finally {
     multiAgentLoading.value = false

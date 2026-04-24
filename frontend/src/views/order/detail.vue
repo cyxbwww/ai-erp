@@ -189,7 +189,7 @@ import {
   type OrderReceiverInfo,
   type OrderShippingInfo
 } from '@/api/order'
-import { aiChatApi } from '@/api/ai'
+import { aiChatApi, getAiRequestErrorMessage } from '@/api/ai'
 import AiAnalysisPanel from '@/components/ai/AiAnalysisPanel.vue'
 import { getOrderStatusLabel, getOrderStatusTagType, getProductUnitLabel } from '@/constants/enums'
 import type { AIChatResult } from '@/types/ai'
@@ -618,9 +618,10 @@ const handleRunOrderMultiAgentAnalysis = async () => {
       remark: '基于 /api/ai/chat'
     })
     message.success('AI 多Agent订单分析完成')
-  } catch (_error) {
+  } catch (error) {
     multiAgentResult.value = null
-    multiAgentError.value = '多 Agent 订单分析请求失败'
+    // 请求异常时展示后端返回的真实 message，便于定位鉴权、模型和服务端错误。
+    multiAgentError.value = getAiRequestErrorMessage(error, '多 Agent 订单分析请求失败')
     message.error(multiAgentError.value)
   } finally {
     multiAgentLoading.value = false

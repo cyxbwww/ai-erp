@@ -218,6 +218,40 @@ ai-erp/
 
 ---
 
+## 环境变量配置
+
+项目提供后端和前端两份 `.env.example`，用于统一管理本地启动配置。首次启动前建议复制示例文件：
+
+```powershell
+Copy-Item backend/.env.example backend/.env
+Copy-Item frontend/.env.example frontend/.env
+```
+
+后端配置文件：`backend/.env`
+
+- `BACKEND_HOST`：后端监听地址，默认 `0.0.0.0`。
+- `BACKEND_PORT`：后端监听端口，默认 `8000`。
+- `DATABASE_URL`：数据库连接地址，默认 `sqlite:///./erp.db`。
+- `JWT_SECRET_KEY`：JWT 签名密钥，本地可使用默认值，正式演示或部署前应修改。
+- `JWT_ALGORITHM`：JWT 签名算法，默认 `HS256`。
+- `ACCESS_TOKEN_EXPIRE_MINUTES`：访问令牌有效期，单位分钟。
+- `REFRESH_TOKEN_EXPIRE_DAYS`：刷新令牌有效期，单位天。
+- `DEEPSEEK_API_KEY`：DeepSeek API Key，属于敏感信息，不要提交到 Git。
+- `DEEPSEEK_BASE_URL`：DeepSeek OpenAI 兼容接口地址。
+- `DEEPSEEK_MODEL`：DeepSeek 模型名称，默认 `deepseek-v4-flash`。
+
+前端配置文件：`frontend/.env`
+
+- `VITE_API_BASE_URL`：前端 Axios 基础路径，默认 `/api`。
+- `VITE_API_PROXY_TARGET`：Vite 本地代理目标地址，默认 `http://127.0.0.1:8000`。
+
+说明：
+- 如果没有创建 `.env`，项目仍会使用代码中的默认配置启动。
+- `.env`、`backend/.env`、`frontend/.env` 已加入忽略规则，示例文件 `.env.example` 会保留在 Git 中。
+- `DEEPSEEK_API_KEY`、真实 JWT 密钥等敏感信息只写入本地 `.env`，不要提交到仓库。
+
+---
+
 ## 本地启动方式
 
 ## 1) 后端启动
@@ -228,12 +262,9 @@ pip install -r requirements.txt
 python run.py
 ```
 
-可选环境变量：
-- `BACKEND_HOST`：默认 `0.0.0.0`
-- `BACKEND_PORT`：默认 `8000`（端口冲突时可改为 `8001`）
-- `DEEPSEEK_API_KEY`：使用客户/订单 AI 与知识库回答生成时建议配置
+后端会读取 `backend/.env`。如果端口冲突，可修改 `BACKEND_PORT`；使用客户/订单 AI 与知识库回答生成时建议配置 `DEEPSEEK_API_KEY`。
 
-例如（Windows PowerShell）：
+也可以临时通过 Windows PowerShell 环境变量覆盖：
 
 ```powershell
 cd backend
@@ -250,8 +281,7 @@ npm install
 npm run dev
 ```
 
-默认通过 Vite 代理访问后端 `/api`。若后端端口不是 `8000`，可调整：
-- `frontend/.env.development` 中 `VITE_API_PROXY_TARGET`
+默认通过 Vite 代理访问后端 `/api`。若后端端口不是 `8000`，可调整 `frontend/.env` 中的 `VITE_API_PROXY_TARGET`。
 
 ## 3) 登录账号
 - 默认管理员账号会在后端启动时自动初始化：

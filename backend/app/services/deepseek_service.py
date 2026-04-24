@@ -1,13 +1,14 @@
 """DeepSeek 服务文件：封装基于 OpenAI SDK 兼容协议的 DeepSeek 调用逻辑。"""
 
 import json
-import os
 import time
 from typing import Any
 
 from openai import OpenAI
 
+from app.core.config import settings
 from app.services.ai_call_log_service import AiCallLogService
+from app.services.llm_response_parser import LLMResponseParser
 
 
 class DeepSeekService:
@@ -20,33 +21,23 @@ class DeepSeekService:
         '并严格按照指定 JSON 格式返回结果，不要输出多余文本。'
     )
 
-    # DeepSeek 兼容 OpenAI 接口的基础地址。
-    BASE_URL = 'https://api.deepseek.com'
-    # 本项目使用的模型名称。
-    MODEL_NAME = 'deepseek-chat'
+    # DeepSeek 兼容 OpenAI 接口的基础地址，保留类属性便于历史代码读取。
+    BASE_URL = settings.deepseek_base_url
+    # 本项目使用的模型名称，实际调用时仍以 settings 为准。
+    MODEL_NAME = settings.deepseek_model
 
     @staticmethod
     def _get_client() -> OpenAI:
-        """创建 DeepSeek 客户端：从环境变量读取 API Key。"""
-        api_key = os.getenv('DEEPSEEK_API_KEY', '').strip()
+        """创建 DeepSeek 客户端：统一从 settings 读取 API Key 与服务地址。"""
+        api_key = settings.deepseek_api_key.strip()
         if not api_key:
             raise ValueError('未配置 DEEPSEEK_API_KEY 环境变量')
-        return OpenAI(api_key=api_key, base_url=DeepSeekService.BASE_URL)
+        return OpenAI(api_key=api_key, base_url=settings.deepseek_base_url)
 
     @staticmethod
     def _extract_text(content: Any) -> str:
         """从 SDK 返回内容中提取文本，兼容字符串或分段结构。"""
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            text_parts: list[str] = []
-            for item in content:
-                if isinstance(item, dict) and item.get('type') == 'text':
-                    text_parts.append(str(item.get('text', '')))
-                else:
-                    text_parts.append(str(item))
-            return ''.join(text_parts)
-        return str(content or '')
+        return LLMResponseParser.extract_content_text(content)
 
     @staticmethod
     def parse_json(content: str) -> dict[str, Any]:
@@ -76,10 +67,11 @@ class DeepSeekService:
         """调用 DeepSeek 对话接口并返回 JSON 对象。"""
         start_time = time.perf_counter()
         content: str | None = None
+        response: Any | None = None
         try:
             client = DeepSeekService._get_client()
             response = client.chat.completions.create(
-                model=DeepSeekService.MODEL_NAME,
+                model=settings.deepseek_model,
                 messages=[
                     {'role': 'system', 'content': DeepSeekService.SYSTEM_PROMPT},
                     {'role': 'user', 'content': user_prompt}
@@ -87,13 +79,9 @@ class DeepSeekService:
                 temperature=0.3
             )
 
-            choices = response.choices or []
-            if not choices:
-                raise ValueError('AI 返回内容为空')
-            message = choices[0].message
-            content = DeepSeekService._extract_text(getattr(message, 'content', ''))
-            if not content.strip():
-                raise ValueError('AI 返回内容为空文本')
+            # 统一解析 SDK 响应，能区分 choices/message/content 为空等具体问题。
+            extract_result = LLMResponseParser.extract_text(response)
+            content = extract_result.text
             data = DeepSeekService.parse_json(content)
             latency_ms = int((time.perf_counter() - start_time) * 1000)
             # 成功日志记录解析后的 JSON 字符串，便于后续检索和排查结构化结果。
@@ -104,7 +92,7 @@ class DeepSeekService:
                 response=json.dumps(data, ensure_ascii=False),
                 status='success',
                 error_message=None,
-                model_name=DeepSeekService.MODEL_NAME,
+                model_name=settings.deepseek_model,
                 latency_ms=latency_ms,
                 prompt_template_key=prompt_template_key,
                 prompt_version=prompt_version
@@ -112,15 +100,17 @@ class DeepSeekService:
             return data
         except Exception as exc:
             latency_ms = int((time.perf_counter() - start_time) * 1000)
+            # 失败日志优先记录安全响应摘要，便于排查 deepseek-v4-flash 等模型的返回结构差异。
+            failed_response = LLMResponseParser.build_safe_summary_text(response) or content
             # 失败日志记录异常信息并继续抛出原异常，保证调用方现有错误处理不变。
             AiCallLogService.write_log(
                 module=module,
                 task_type=task_type,
                 prompt=user_prompt,
-                response=content,
+                response=failed_response,
                 status='failed',
                 error_message=str(exc),
-                model_name=DeepSeekService.MODEL_NAME,
+                model_name=settings.deepseek_model,
                 latency_ms=latency_ms,
                 prompt_template_key=prompt_template_key,
                 prompt_version=prompt_version
