@@ -19,13 +19,16 @@ class OrderAnalysisAgent(BaseAgent):
     """order_analysis_agent 实现。"""
 
     name = 'order_analysis_agent'
+    description = '基于订单详情执行规则评分，并用 LLM 补充风险解释和处理建议。'
+    supported_scenes = ['order_detail']
+    dependencies: list[str] = []
 
     def run(self, db: Session, request: AIChatRequest, previous_outputs: dict[str, Any]) -> dict[str, Any]:
         """执行订单分析：规则评分优先，LLM 负责解释。"""
         _ = previous_outputs
         order_id = int(request.context.get('order_id') or 0)
         if order_id <= 0:
-            return OrderAnalysisOutput(
+            output = OrderAnalysisOutput(
                 risk_score=0,
                 risk_level='low',
                 risk_factors=[{'name': '缺少订单编号', 'score': 0}],
@@ -34,6 +37,13 @@ class OrderAnalysisAgent(BaseAgent):
                 need_manual_intervention=False,
                 analysis_summary='缺少订单编号，返回兜底结果。'
             ).model_dump()
+            return self.attach_execution_meta(
+                output,
+                status='partial_failed',
+                confidence=0.25,
+                next_recommendation='请补充 order_id 后重新执行订单分析。',
+                message='缺少订单编号，已返回兜底订单分析。'
+            )
 
         order_detail = AgentQueryTools.get_order_analysis_context(db=db, order_id=order_id)
 
@@ -58,7 +68,17 @@ class OrderAnalysisAgent(BaseAgent):
         )
 
         normalized = self._normalize(scoring=scoring, llm_data=llm_data)
-        return normalized.model_dump()
+        output = normalized.model_dump()
+        next_recommendation = '按标准订单流程继续推进。'
+        if output.get('risk_level') == 'high' or bool(output.get('need_manual_intervention')):
+            next_recommendation = '建议人工复核订单风险，并结合知识库规则校验处理口径。'
+        return self.attach_execution_meta(
+            output,
+            status='success',
+            confidence=0.86,
+            next_recommendation=next_recommendation,
+            message='订单风险分析完成。'
+        )
 
     @staticmethod
     def _normalize(scoring: dict[str, Any], llm_data: dict[str, Any]) -> OrderAnalysisOutput:
@@ -130,4 +150,3 @@ class OrderAnalysisAgent(BaseAgent):
         if isinstance(value, str) and value.strip():
             return [value.strip()]
         return []
-

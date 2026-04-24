@@ -84,27 +84,6 @@ export interface CustomerFollowRecordPayload {
   next_follow_time?: string | null
 }
 
-// AI 跟进建议返回结构
-export interface CustomerAIFollowAdvice {
-  intent_level: {
-    code: 'high' | 'medium' | 'low'
-    label: '高意向' | '中意向' | '低意向'
-  }
-  current_focus: string
-  next_step_advice: string[]
-  recommended_talk_track: string
-  suggested_next_follow_time: string
-  ai_source?: 'deepseek' | 'fallback'
-}
-
-// AI 跟进总结返回结构
-export interface CustomerAIFollowSummary {
-  current_progress: string
-  history_key_points: string[]
-  potential_risks: string[]
-  ai_source?: 'deepseek' | 'fallback'
-}
-
 // 获取客户列表（搜索 + 分页）
 export const customerListApi = (params: CustomerListParams) => {
   return http.get('/api/customer/list', { params })
@@ -148,14 +127,4 @@ export const customerFollowRecordUpdateApi = (payload: CustomerFollowRecordPaylo
 // 删除客户跟进记录
 export const customerFollowRecordDeleteApi = (id: number) => {
   return http.delete(`/api/customer-follow-record/delete/${id}`)
-}
-
-// AI 生成跟进建议
-export const customerAIFollowAdviceApi = (id: number) => {
-  return http.post(`/api/customer/${id}/ai-follow-advice`)
-}
-
-// AI 总结跟进记录
-export const customerAIFollowSummaryApi = (id: number) => {
-  return http.post(`/api/customer/${id}/ai-follow-summary`)
 }

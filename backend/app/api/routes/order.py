@@ -1,4 +1,4 @@
-"""订单路由文件：提供订单管理、状态流转与 AI 分析接口。"""
+"""订单路由文件：提供订单管理与状态流转接口。"""
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -7,8 +7,7 @@ from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.core.response import api_error, api_success
 from app.models.user import User
-from app.schemas.order import OrderAIAnalysisPayload, OrderCreate, OrderStatusUpdate, OrderUpdate
-from app.services.order_ai_service import OrderAIService
+from app.schemas.order import OrderCreate, OrderStatusUpdate, OrderUpdate
 from app.services.order_service import OrderService
 
 router = APIRouter(prefix='/api/order', tags=['order'])
@@ -93,21 +92,6 @@ def order_status_update(
         return api_error(str(exc))
 
 
-@router.post('/{order_id}/ai-analysis')
-def order_ai_analysis(
-    order_id: int,
-    payload: OrderAIAnalysisPayload,
-    _current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """订单 AI 分析接口：支持订单分析、风险检测与销售建议。"""
-    try:
-        data = OrderAIService.analyze_order(db, order_id, payload.analysis_type)
-        return api_success(data)
-    except ValueError as exc:
-        return api_error(str(exc))
-
-
 @router.delete('/delete/{order_id}')
 def order_delete(
     order_id: int,
@@ -119,4 +103,3 @@ def order_delete(
     if not ok:
         return api_error('订单不存在')
     return api_success(True)
-

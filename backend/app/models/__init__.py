@@ -6,6 +6,7 @@ from app.models.memory_record import MemoryRecord
 from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.product import Product
+from app.models.task import Task
 from app.models.user import User
 
-__all__ = ['Base', 'User', 'Customer', 'CustomerFollowRecord', 'Product', 'Order', 'OrderItem', 'AIRecord', 'MemoryRecord']
+__all__ = ['Base', 'User', 'Customer', 'CustomerFollowRecord', 'Product', 'Order', 'OrderItem', 'AIRecord', 'MemoryRecord', 'Task']

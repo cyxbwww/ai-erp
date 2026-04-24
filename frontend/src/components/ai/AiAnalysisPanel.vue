@@ -59,6 +59,7 @@
             :key="`agent-block-${index}-${block.agent_name || 'unknown'}`"
             :block="block"
             :default-collapsed="shouldDefaultCollapse(block.agent_name)"
+            @task-created="emit('task-created', $event)"
           />
           <n-empty v-if="!agentBlocks.length" description="暂无 Agent 结果" />
         </n-space>
@@ -99,6 +100,8 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (event: 'retry'): void
+  // 透传任务创建成功事件，由业务页面决定是否刷新关联数据。
+  (event: 'task-created', task: Record<string, any>): void
 }>()
 
 const message = useMessage()

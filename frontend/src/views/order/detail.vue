@@ -117,59 +117,6 @@
       />
     </n-card>
 
-    <n-card title="基础 AI 能力（兼容）" :bordered="false" class="legacy-ai-card">
-      <n-collapse>
-        <n-collapse-item title="订单分析/风险检测/销售建议（旧模块）" name="legacy-order-ai">
-          <n-grid :cols="3" :x-gap="12" :y-gap="12">
-            <n-gi v-for="card in aiCards" :key="card.type">
-              <n-card size="small" :title="card.title" class="legacy-inner-card">
-                <template #header-extra>
-                  <n-space size="small" align="center">
-                    <n-tag size="small" :type="getAIStatus(card.type).type">
-                      {{ getAIStatus(card.type).label }}
-                    </n-tag>
-                    <n-button size="tiny" :loading="aiLoadingMap[card.type]" @click="handleAIAnalyze(card.type)">
-                      {{ getAIGenerateButtonText(card.type) }}
-                    </n-button>
-                    <n-button size="tiny" :disabled="!aiResults[card.type]" @click="handleCopyAIResult(card.type)">
-                      复制结果
-                    </n-button>
-                  </n-space>
-                </template>
-
-                <n-spin :show="aiLoadingMap[card.type]">
-                  <div class="ai-meta-row">分析时间：{{ aiGeneratedAt[card.type] || '-' }}</div>
-
-                  <n-empty v-if="!aiResults[card.type]" :description="card.emptyText" />
-
-                  <div v-else class="ai-result-block">
-                    <div class="ai-section-title">结论摘要</div>
-                    <div class="ai-summary">{{ aiResults[card.type]?.summary || '-' }}</div>
-                    <div v-if="card.type === 'risk'" class="ai-risk-level-row">
-                      <span class="ai-risk-level-label">风险等级：</span>
-                      <n-tag size="small" :type="getRiskLevelTagType((aiResults.risk?.risk_level || 'low') as 'low' | 'medium' | 'high')">
-                        {{ getRiskLevelLabel((aiResults.risk?.risk_level || 'low') as 'low' | 'medium' | 'high') }}
-                      </n-tag>
-                    </div>
-
-                    <div class="ai-section-title">{{ card.pointTitle }}</div>
-                    <ul class="ai-list">
-                      <li v-for="(item, idx) in getAIPoints(card.type)" :key="`point-${card.type}-${idx}`">{{ item }}</li>
-                    </ul>
-
-                    <div class="ai-section-title">建议动作</div>
-                    <ul class="ai-list">
-                      <li v-for="(item, idx) in aiResults[card.type]?.suggestions || []" :key="`suggest-${card.type}-${idx}`">{{ item }}</li>
-                    </ul>
-                  </div>
-                </n-spin>
-              </n-card>
-            </n-gi>
-          </n-grid>
-        </n-collapse-item>
-      </n-collapse>
-    </n-card>
-
     <n-card title="订单明细" :bordered="false">
       <n-data-table
         :columns="itemColumns"
@@ -211,13 +158,11 @@
 
 <script setup lang="ts">
 // 订单详情页：展示订单基础信息、状态流转、AI 分析、订单明细、汇总信息与操作记录。
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   NButton,
   NCard,
-  NCollapse,
-  NCollapseItem,
   NDataTable,
   NDescriptions,
   NDescriptionsItem,
@@ -235,10 +180,8 @@ import {
   type DataTableColumns
 } from 'naive-ui'
 import {
-  orderAIAnalysisApi,
   orderDetailApi,
   orderStatusUpdateApi,
-  type OrderAIAnalysisResult,
   type OrderDetail,
   type OrderItem,
   type OrderOperationLog,
@@ -253,13 +196,11 @@ import type { AIChatResult } from '@/types/ai'
 import { getOrderRuntimeState, patchOrderRuntimeState } from '@/utils/order-runtime-state'
 
 type OrderTransitionStatus = 'confirmed' | 'completed' | 'cancelled'
-type AIType = 'analysis' | 'risk' | 'advice'
 type NaiveTagType = 'default' | 'primary' | 'info' | 'success' | 'warning' | 'error'
 
 // 订单详情页本地持久化结构：按订单维度保存 AI 结果与前端追加日志。
 type OrderDetailPersistedState = {
-  aiResults: Record<AIType, OrderAIAnalysisResult | null>
-  aiGeneratedAt: Record<AIType, string>
+  // 旧版基础 AI 结果已从订单详情页移除，当前仅保留本地操作日志。
   localOperationLogs: OrderOperationLog[]
 }
 
@@ -281,28 +222,6 @@ const detailData = ref<OrderDetail | null>(null)
 const serverOperationLogs = ref<OrderOperationLog[]>([])
 const localOperationLogs = ref<OrderOperationLog[]>([])
 
-// 三类 AI 结果分别缓存，便于重复查看与复制
-const aiResults = reactive<{
-  analysis: OrderAIAnalysisResult | null
-  risk: OrderAIAnalysisResult | null
-  advice: OrderAIAnalysisResult | null
-}>({
-  analysis: null,
-  risk: null,
-  advice: null
-})
-
-// 三类 AI 分析加载状态与最近生成时间
-const aiLoadingMap = reactive<Record<AIType, boolean>>({
-  analysis: false,
-  risk: false,
-  advice: false
-})
-const aiGeneratedAt = reactive<Record<AIType, string>>({
-  analysis: '',
-  risk: '',
-  advice: ''
-})
 const multiAgentLoading = ref(false)
 const multiAgentResult = ref<AIChatResult | null>(null)
 const multiAgentError = ref('')
@@ -326,21 +245,12 @@ const setPersistedMap = (map: Record<number, OrderDetailPersistedState>) => {
   localStorage.setItem(ORDER_DETAIL_STORAGE_KEY, JSON.stringify(map))
 }
 
-// 持久化当前订单 AI 结果与前端追加日志。
+// 持久化当前订单详情页演示日志；旧版基础 AI 结果已清理。
 const persistCurrentOrderDetailState = () => {
   if (!orderId.value) return
   const map = getPersistedMap()
   map[orderId.value] = {
-    aiResults: {
-      analysis: aiResults.analysis,
-      risk: aiResults.risk,
-      advice: aiResults.advice
-    },
-    aiGeneratedAt: {
-      analysis: aiGeneratedAt.analysis,
-      risk: aiGeneratedAt.risk,
-      advice: aiGeneratedAt.advice
-    },
+    // 只保留多 Agent 分析和状态流转产生的本地操作日志。
     localOperationLogs: localOperationLogs.value
   }
   setPersistedMap(map)
@@ -353,12 +263,7 @@ const restorePersistedOrderDetailState = () => {
   const persisted = map[orderId.value]
   if (!persisted) return
 
-  aiResults.analysis = persisted.aiResults?.analysis || null
-  aiResults.risk = persisted.aiResults?.risk || null
-  aiResults.advice = persisted.aiResults?.advice || null
-  aiGeneratedAt.analysis = persisted.aiGeneratedAt?.analysis || ''
-  aiGeneratedAt.risk = persisted.aiGeneratedAt?.risk || ''
-  aiGeneratedAt.advice = persisted.aiGeneratedAt?.advice || ''
+  // 旧版基础 AI 状态已移除，刷新时只恢复演示操作日志。
   localOperationLogs.value = Array.isArray(persisted.localOperationLogs) ? persisted.localOperationLogs : []
 }
 
@@ -378,28 +283,6 @@ const displayOperationLogs = computed<OrderOperationLog[]>(() => {
   })
   return Array.from(map.values())
 })
-
-// AI 卡片配置：统一渲染标题与空状态文案
-const aiCards: Array<{ type: AIType; title: string; pointTitle: string; emptyText: string }> = [
-  {
-    type: 'analysis',
-    title: '订单分析结果',
-    pointTitle: '分析要点',
-    emptyText: '暂无结果，请点击“AI 分析订单”'
-  },
-  {
-    type: 'risk',
-    title: '风险检测结果',
-    pointTitle: '风险点',
-    emptyText: '暂无结果，请点击“AI 风险检测”'
-  },
-  {
-    type: 'advice',
-    title: '销售建议结果',
-    pointTitle: '机会点',
-    emptyText: '暂无结果，请点击“AI 销售建议”'
-  }
-]
 
 // 根据订单状态生成可执行按钮
 const transitionActions = computed<Array<{ label: string; target: OrderTransitionStatus; type: 'info' | 'success' | 'warning' }>>(() => {
@@ -608,78 +491,6 @@ const getTransitionConfirmText = (target: OrderTransitionStatus): string => {
   return '确认将该订单状态更新为“已取消”吗？'
 }
 
-// 计算 AI 卡片状态展示
-const getAIStatus = (type: AIType): { label: string; type: NaiveTagType } => {
-  if (aiLoadingMap[type]) return { label: '生成中', type: 'info' }
-  if (aiResults[type]) return { label: '已生成', type: 'success' }
-  return { label: '未生成', type: 'default' }
-}
-
-// 风险等级标签文案映射
-const getRiskLevelLabel = (level: 'low' | 'medium' | 'high'): string => {
-  if (level === 'high') return '高风险'
-  if (level === 'medium') return '中风险'
-  return '低风险'
-}
-
-// 风险等级标签颜色映射
-const getRiskLevelTagType = (level: 'low' | 'medium' | 'high'): NaiveTagType => {
-  if (level === 'high') return 'error'
-  if (level === 'medium') return 'warning'
-  return 'success'
-}
-
-// AI 卡片按钮文案：未生成按模块提示“生成xx”，已生成提示“重新生成”。
-const getAIGenerateButtonText = (type: AIType): string => {
-  if (aiResults[type]) return '重新生成'
-  if (type === 'analysis') return '生成分析'
-  if (type === 'risk') return '生成风险检测'
-  return '生成销售建议'
-}
-
-// 获取不同 AI 卡片的“要点”内容
-const getAIPoints = (type: AIType): string[] => {
-  const result = aiResults[type]
-  if (!result) return []
-  return type === 'risk' ? result.risks || [] : result.highlights || []
-}
-
-// 将 AI 结果序列化为可复制文本
-const buildAIResultText = (type: AIType): string => {
-  const result = aiResults[type]
-  if (!result) return ''
-
-  const pointTitle = type === 'risk' ? '风险点' : '分析要点'
-  const points = getAIPoints(type)
-  const suggestions = result.suggestions || []
-
-  return [
-    `【${result.title || 'AI 分析结果'}】`,
-    `分析时间：${aiGeneratedAt[type] || '-'}`,
-    `结论摘要：${result.summary || '-'}`,
-    `${pointTitle}：`,
-    points.length ? points.map((item, index) => `${index + 1}. ${item}`).join('\n') : '- 无',
-    '建议动作：',
-    suggestions.length ? suggestions.map((item, index) => `${index + 1}. ${item}`).join('\n') : '- 无'
-  ].join('\n')
-}
-
-// 复制 AI 结果
-const handleCopyAIResult = async (type: AIType) => {
-  const text = buildAIResultText(type)
-  if (!text) {
-    message.warning('暂无可复制的 AI 结果')
-    return
-  }
-
-  try {
-    await navigator.clipboard.writeText(text)
-    message.success('AI 结果已复制')
-  } catch (_error) {
-    message.error('复制失败，请手动复制')
-  }
-}
-
 // 根据订单详情生成 mock 操作记录
 const buildMockOperationLogs = (detail: OrderDetail): OrderOperationLog[] => {
   const logs: OrderOperationLog[] = [
@@ -776,46 +587,6 @@ const handleStatusTransition = async (targetStatus: OrderTransitionStatus) => {
   }
 }
 
-// 调用订单 AI 分析接口，并将结果写入对应模块
-const handleAIAnalyze = async (analysisType: AIType) => {
-  if (!orderId.value) {
-    message.error('订单编号无效')
-    return
-  }
-
-  aiLoadingMap[analysisType] = true
-  try {
-    const res = await orderAIAnalysisApi(orderId.value, { analysis_type: analysisType })
-    if (res.data.code !== 0) {
-      message.error(res.data.message || 'AI 分析失败')
-      return
-    }
-
-    aiResults[analysisType] = res.data.data as OrderAIAnalysisResult
-    aiGeneratedAt[analysisType] = new Date().toLocaleString('zh-CN')
-    if (analysisType === 'risk') {
-      // 风险等级统一以后端 risk_level 为准，前端不再根据风险条目数量推导。
-      patchOrderRuntimeState(orderId.value, {
-        risk_level: aiResults[analysisType]?.risk_level || 'low',
-        ai_analyzed: true,
-        ai_analyzed_at: aiGeneratedAt[analysisType]
-      })
-    }
-    appendLocalOperationLog({
-      action_type: 'ai_analysis',
-      content: `执行 AI ${analysisType === 'analysis' ? '订单分析' : analysisType === 'risk' ? '风险检测' : '销售建议'}`,
-      operator: '当前用户',
-      operated_at: aiGeneratedAt[analysisType],
-      remark: aiResults[analysisType]?.ai_source ? `数据来源：${aiResults[analysisType]?.ai_source}` : '-'
-    })
-    message.success('AI 分析完成')
-  } catch (_error) {
-    message.error('AI 分析请求失败')
-  } finally {
-    aiLoadingMap[analysisType] = false
-  }
-}
-
 // 调用多 Agent 订单分析接口：返回统一 plan、summary 与 Agent 结果。
 const handleRunOrderMultiAgentAnalysis = async () => {
   if (!orderId.value) {
@@ -884,51 +655,6 @@ onMounted(async () => {
 
 .fulfillment-grid {
   margin-top: 12px;
-}
-
-.ai-meta-row {
-  margin-bottom: 8px;
-  color: #999;
-  font-size: 12px;
-}
-
-.ai-result-block {
-  line-height: 1.7;
-  color: #333;
-}
-
-.ai-section-title {
-  margin-top: 8px;
-  margin-bottom: 4px;
-  font-weight: 600;
-}
-
-.ai-summary {
-  margin-bottom: 6px;
-}
-
-.ai-risk-level-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-
-.ai-risk-level-label {
-  color: #666;
-}
-
-.ai-list {
-  margin: 0;
-  padding-left: 18px;
-}
-
-.legacy-ai-card :deep(.n-collapse-item__header) {
-  font-weight: 600;
-}
-
-.legacy-inner-card {
-  background: #fafafa;
 }
 
 .summary-grid {

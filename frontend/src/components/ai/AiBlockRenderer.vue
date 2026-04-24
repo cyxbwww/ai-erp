@@ -87,6 +87,16 @@
               {{ isExpanded('task_desc') ? '收起' : '展开' }}
             </n-button>
             <div class="business-row"><span class="label">提醒文案：</span><span>{{ getText(data.reminder_text) }}</span></div>
+            <div v-if="hasTaskDraft" class="task-draft-box">
+              <div class="task-draft-title">AI 任务草稿</div>
+              <div class="business-row"><span class="label">标题：</span><span>{{ getText(taskDraft.title) }}</span></div>
+              <div class="business-row"><span class="label">描述：</span><span>{{ getText(taskDraft.description) }}</span></div>
+              <div class="business-row"><span class="label">优先级：</span><span>{{ getText(taskDraft.priority) }}</span></div>
+              <div class="business-row"><span class="label">截止时间：</span><span>{{ getText(taskDraft.due_time) }}</span></div>
+              <n-button type="primary" size="small" :loading="creatingTask" :disabled="creatingTask || taskCreated" @click="confirmCreateTask">
+                {{ taskCreated ? '任务已创建' : '确认创建任务' }}
+              </n-button>
+            </div>
           </n-space>
         </template>
 
@@ -109,8 +119,9 @@
 
 <script setup lang="ts">
 // Agent 结果块渲染器：优先业务化展示，保留原始 JSON 折叠区用于调试。
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { NButton, NCard, NCollapse, NCollapseItem, NSpace, NTag, useMessage } from 'naive-ui'
+import { createTaskFromAIDraftApi, type TaskFromAIDraftPayload } from '@/api/task'
 import type { UIBlock } from '@/types/ai'
 
 const MAX_TEXT_LENGTH = 200
@@ -125,11 +136,46 @@ const props = withDefaults(
   }
 )
 
+const emit = defineEmits<{
+  // 任务创建成功后通知上层刷新客户关联任务列表。
+  (event: 'task-created', task: Record<string, any>): void
+}>()
+
 const message = useMessage()
 const expandedMap = reactive<Record<string, boolean>>({})
+const creatingTask = ref(false)
+const taskCreated = ref(false)
 
 const agentName = computed(() => props.block.agent_name || '')
 const data = computed<Record<string, any>>(() => (props.block.data || {}) as Record<string, any>)
+const taskDraft = computed<Record<string, any>>(() => {
+  // task_draft 是第二阶段新增扩展字段，旧数据不存在时保持空对象。
+  const draft = data.value.task_draft
+  return draft && typeof draft === 'object' ? draft : {}
+})
+const taskPayload = computed<TaskFromAIDraftPayload>(() => {
+  // 优先使用后端生成的 task_payload，缺失时从 task_draft 和旧顶层字段兜底拼装。
+  const payload = data.value.task_payload
+  if (payload && typeof payload === 'object') {
+    return payload as TaskFromAIDraftPayload
+  }
+  return {
+    task_type: getText(data.value.task_type),
+    title: getText(taskDraft.value.title || data.value.title),
+    description: getText(taskDraft.value.description || data.value.description),
+    priority: getText(taskDraft.value.priority || data.value.priority),
+    owner: getText(taskDraft.value.owner || data.value.suggested_owner),
+    due_time: getText(taskDraft.value.due_time || data.value.suggested_due_time),
+    reminder_text: getText(taskDraft.value.reminder_text || data.value.reminder_text),
+    related_customer_id: Number(taskDraft.value.related_customer_id || data.value.related_customer_id || 0),
+    source: getText(taskDraft.value.source || 'ai_agent_draft')
+  }
+})
+const hasTaskDraft = computed(() => {
+  // 仅任务执行 Agent 且存在草稿标题时展示确认创建入口。
+  const title = String(taskDraft.value.title || data.value.title || '').trim()
+  return agentName.value === 'task_execution_agent' && !!title
+})
 
 const titleMap: Record<string, string> = {
   customer_insight_agent: '客户洞察卡片',
@@ -195,6 +241,7 @@ const genericEntries = computed(() => {
 })
 
 const jsonPreview = computed(() => JSON.stringify(data.value, null, 2))
+const taskPayloadKey = computed(() => JSON.stringify(taskPayload.value))
 
 const getAgentTagType = (name: string): 'default' | 'primary' | 'info' | 'success' | 'warning' | 'error' => {
   if (name === 'followup_strategy_agent') return 'success'
@@ -212,6 +259,37 @@ const copyBlockJson = async () => {
     message.success('Agent JSON 已复制')
   } catch (_error) {
     message.error('复制失败，请手动复制')
+  }
+}
+
+// 当 AI 重新生成任务草稿时，重置按钮状态，避免复用组件时误显示“任务已创建”。
+watch(taskPayloadKey, () => {
+  taskCreated.value = false
+})
+
+// 用户确认后才调用后端创建真实任务，避免 Agent 自动落库。
+const confirmCreateTask = async () => {
+  // 防止请求进行中重复点击导致重复创建真实任务。
+  if (!hasTaskDraft.value || creatingTask.value || taskCreated.value) return
+  const payload = taskPayload.value
+  if (!payload.title || payload.title === '-') {
+    message.error('任务标题不能为空')
+    return
+  }
+  creatingTask.value = true
+  try {
+    const res = await createTaskFromAIDraftApi(payload)
+    if (res.data?.code !== 0) {
+      message.error(res.data?.message || '任务创建失败')
+      return
+    }
+    taskCreated.value = true
+    emit('task-created', res.data.data || {})
+    message.success('任务已创建')
+  } catch (_error) {
+    message.error('任务创建请求失败')
+  } finally {
+    creatingTask.value = false
   }
 }
 </script>
@@ -255,6 +333,19 @@ const copyBlockJson = async () => {
   padding-left: 10px;
   color: #1f2d3d;
   line-height: 1.7;
+}
+
+.task-draft-box {
+  border: 1px solid #dbeafe;
+  background: #f8fbff;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.task-draft-title {
+  margin-bottom: 6px;
+  color: #1f2d3d;
+  font-weight: 600;
 }
 
 .json-block {

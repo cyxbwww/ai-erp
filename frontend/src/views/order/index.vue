@@ -55,7 +55,6 @@
             确认删除选中的 {{ checkedRowKeys.length }} 条订单吗？
           </n-popconfirm>
           <n-button :disabled="!checkedRowKeys.length" @click="handleBatchExport">批量导出</n-button>
-          <n-button :disabled="!checkedRowKeys.length" :loading="batchAiAnalyzing" @click="handleBatchAIAnalyze">批量 AI 分析</n-button>
         </n-space>
       </div>
 
@@ -108,7 +107,7 @@ import {
   type DataTableColumns,
   type DropdownOption
 } from 'naive-ui'
-import { orderAIAnalysisApi, orderDeleteApi, orderListApi, orderStatusUpdateApi, type OrderListItem } from '@/api/order'
+import { orderDeleteApi, orderListApi, orderStatusUpdateApi, type OrderListItem } from '@/api/order'
 import { ORDER_STATUS_OPTIONS, getOrderStatusLabel, getOrderStatusTagType } from '@/constants/enums'
 import {
   ensureOrderRuntimeStates,
@@ -118,11 +117,10 @@ import {
   setOrderRuntimeStateMap,
   type OrderRuntimeState,
   type OrderPaymentStatus,
-  type OrderRiskLevel,
   type OrderShippingStatus
 } from '@/utils/order-runtime-state'
 
-type MoreActionKey = 'confirm_paid' | 'confirm_shipped' | 'complete_order' | 'cancel_order' | 'ai_analysis'
+type MoreActionKey = 'confirm_paid' | 'confirm_shipped' | 'complete_order' | 'cancel_order'
 
 const message = useMessage()
 const router = useRouter()
@@ -130,7 +128,6 @@ const router = useRouter()
 // 列表与批量操作加载状态
 const tableLoading = ref(false)
 const batchDeleting = ref(false)
-const batchAiAnalyzing = ref(false)
 const statusUpdatingId = ref<number | null>(null)
 
 // 筛选表单：支持状态、时间、金额等组合筛选
@@ -193,20 +190,6 @@ const getShippingStatusLabel = (status: OrderShippingStatus): string => (status 
 // 读取发货状态标签颜色
 const getShippingStatusTagType = (status: OrderShippingStatus) => (status === 'shipped' ? 'success' : 'warning')
 
-// 读取风险等级中文名称
-const getRiskLevelLabel = (level: OrderRiskLevel): string => {
-  if (level === 'high') return '高风险'
-  if (level === 'medium') return '中风险'
-  return '低风险'
-}
-
-// 读取风险等级标签颜色
-const getRiskLevelTagType = (level: OrderRiskLevel) => {
-  if (level === 'high') return 'error'
-  if (level === 'medium') return 'warning'
-  return 'success'
-}
-
 // 获取行级运行态（列表和详情共用）
 const syncRuntimeStateMap = () => {
   runtimeStateMap.value = getOrderRuntimeStateMap()
@@ -232,8 +215,7 @@ const getMoreOptions = (row: OrderListItem): DropdownOption[] => {
     { label: '确认付款', key: 'confirm_paid', disabled: !canConfirmPaid },
     { label: '确认发货', key: 'confirm_shipped', disabled: !canConfirmShipped },
     { label: '完成订单', key: 'complete_order', disabled: !canComplete },
-    { label: '取消订单', key: 'cancel_order', disabled: !canCancel },
-    { label: 'AI 分析', key: 'ai_analysis', disabled: false }
+    { label: '取消订单', key: 'cancel_order', disabled: !canCancel }
   ]
 }
 
@@ -348,32 +330,6 @@ const handleStatusTransition = async (row: OrderListItem, target: 'confirmed' | 
   }
 }
 
-// 单行 AI 风险分析
-const handleRowAIAnalyze = async (row: OrderListItem, silent = false): Promise<boolean> => {
-  try {
-    const res = await orderAIAnalysisApi(row.id, { analysis_type: 'risk' })
-    if (res.data.code !== 0) {
-      if (!silent) message.error(res.data.message || `订单 ${row.order_no} AI 分析失败`)
-      return false
-    }
-
-    // 风险等级统一使用后端 AI 返回值，不再前端自行推导。
-    const riskLevel = (res.data.data?.risk_level || getRuntime(row)?.risk_level || 'low') as OrderRiskLevel
-    patchOrderRuntimeState(row.id, {
-      risk_level: riskLevel,
-      ai_analyzed: true,
-      ai_analyzed_at: new Date().toLocaleString('zh-CN')
-    })
-    syncRuntimeStateMap()
-    if (!silent) message.success(`订单 ${row.order_no} AI 分析完成`)
-    refreshTableByFilter()
-    return true
-  } catch (_error) {
-    if (!silent) message.error(`订单 ${row.order_no} AI 分析请求失败`)
-    return false
-  }
-}
-
 // 行级更多操作分发
 const handleMoreAction = (action: string | number, row: OrderListItem) => {
   const key = String(action) as MoreActionKey
@@ -411,11 +367,6 @@ const handleMoreAction = (action: string | number, row: OrderListItem) => {
     if (ok) {
       handleStatusTransition(row, 'cancelled')
     }
-    return
-  }
-
-  if (key === 'ai_analysis') {
-    handleRowAIAnalyze(row)
     return
   }
 
@@ -518,24 +469,6 @@ const handleBatchExport = () => {
   message.success(`已导出 ${checkedRows.value.length} 条订单`) 
 }
 
-// 批量 AI 分析：逐条调用风险分析接口并更新风险标记
-const handleBatchAIAnalyze = async () => {
-  if (!checkedRows.value.length) return
-
-  batchAiAnalyzing.value = true
-  try {
-    let successCount = 0
-    for (const row of checkedRows.value) {
-      // 顺序执行，避免并发过高导致接口压力过大
-      const ok = await handleRowAIAnalyze(row, true)
-      if (ok) successCount += 1
-    }
-    message.success(`批量 AI 分析完成，成功 ${successCount}/${checkedRows.value.length}`)
-  } finally {
-    batchAiAnalyzing.value = false
-  }
-}
-
 // 搜索
 const handleSearch = async () => {
   if (searchForm.amountMin !== null && searchForm.amountMax !== null && searchForm.amountMin > searchForm.amountMax) {
@@ -621,20 +554,11 @@ const columns: DataTableColumns<OrderListItem> = [
     width: 130,
     render: (row) => `¥${Number(row.total_amount || 0).toFixed(2)}`
   },
-  {
-    title: '风险标记',
-    key: 'risk_level',
-    width: 100,
-    render: (row) => {
-      const risk = getRuntime(row)?.risk_level || 'low'
-      return h(NTag, { size: 'small', type: getRiskLevelTagType(risk) }, { default: () => getRiskLevelLabel(risk) })
-    }
-  },
   { title: '更新时间', key: 'updated_at', minWidth: 160 },
   {
     title: '操作',
     key: 'actions',
-    width: 380,
+    width: 320,
     fixed: 'right',
     render: (row) =>
       h(NSpace, { wrap: false, size: 'small' }, {

@@ -8,7 +8,6 @@ from app.core.database import get_db
 from app.core.response import api_error, api_success
 from app.models.user import User
 from app.schemas.customer import CustomerCreate, CustomerUpdate
-from app.services.customer_ai_service import CustomerAIService
 from app.services.customer_service import CustomerService
 
 router = APIRouter(prefix='/api/customer', tags=['customer'])
@@ -96,31 +95,3 @@ def customer_detail(
     if not customer:
         return api_error('客户不存在')
     return api_success(CustomerService.serialize(customer))
-
-
-@router.post('/{customer_id}/ai-follow-advice')
-def customer_ai_follow_advice(
-    customer_id: int,
-    _current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """AI 跟进建议接口：基于客户信息与历史跟进记录生成建议。"""
-    try:
-        data = CustomerAIService.generate_follow_advice(db, customer_id)
-        return api_success(data)
-    except ValueError as exc:
-        return api_error(str(exc))
-
-
-@router.post('/{customer_id}/ai-follow-summary')
-def customer_ai_follow_summary(
-    customer_id: int,
-    _current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """AI 跟进总结接口：对客户历史跟进记录进行阶段总结。"""
-    try:
-        data = CustomerAIService.generate_follow_summary(db, customer_id)
-        return api_success(data)
-    except ValueError as exc:
-        return api_error(str(exc))

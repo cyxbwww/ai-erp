@@ -16,6 +16,9 @@ class KnowledgeRAGAgent(BaseAgent):
     """knowledge_rag_agent 实现。"""
 
     name = 'knowledge_rag_agent'
+    description = '检索销售 ERP 知识库，返回命中片段、摘要和引用来源。'
+    supported_scenes = ['knowledge_base', 'customer_detail', 'order_detail', 'general']
+    dependencies: list[str] = []
 
     def run(self, db: Session, request: AIChatRequest, previous_outputs: dict[str, Any]) -> dict[str, Any]:
         """执行知识检索并输出结构化结果。"""
@@ -24,12 +27,19 @@ class KnowledgeRAGAgent(BaseAgent):
 
         query = (request.user_message or '').strip()
         if not query:
-            return KnowledgeRAGOutput(
+            output = KnowledgeRAGOutput(
                 query='',
                 hits=[],
                 summary='问题为空，无法执行知识检索。',
                 references=[]
             ).model_dump()
+            return self.attach_execution_meta(
+                output,
+                status='skipped',
+                confidence=0.0,
+                next_recommendation='请补充明确问题后重新检索知识库。',
+                message='用户问题为空，已跳过知识检索。'
+            )
 
         # 从上下文读取 top_k，默认 4；保底限制在 1~8。
         raw_top_k = int(request.context.get('top_k') or 4)
@@ -37,7 +47,23 @@ class KnowledgeRAGAgent(BaseAgent):
 
         payload = AgentQueryTools.get_knowledge_rag_payload(question=query, top_k=top_k)
         normalized = self._normalize(payload)
-        return normalized.model_dump()
+        output = normalized.model_dump()
+        hit_count = len(output.get('hits', [])) if isinstance(output.get('hits'), list) else 0
+        if hit_count <= 0:
+            return self.attach_execution_meta(
+                output,
+                status='partial_failed',
+                confidence=0.45,
+                next_recommendation='建议补充更具体的关键词后重新检索。',
+                message='知识库未命中有效片段。'
+            )
+        return self.attach_execution_meta(
+            output,
+            status='success',
+            confidence=0.78,
+            next_recommendation='可结合知识来源完善业务分析结论。',
+            message='知识检索完成。'
+        )
 
     @staticmethod
     def _normalize(payload: dict[str, Any]) -> KnowledgeRAGOutput:
@@ -69,4 +95,3 @@ class KnowledgeRAGAgent(BaseAgent):
             summary=str(payload.get('summary', '')).strip(),
             references=references
         )
-

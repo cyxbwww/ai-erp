@@ -16,6 +16,9 @@ class SupervisorAgent(BaseAgent):
     """总控 Agent：规则优先，LLM 兜底。"""
 
     name = 'supervisor_agent'
+    description = '识别业务场景、判断任务类型，并生成多 Agent 执行计划。'
+    supported_scenes = ['customer_detail', 'order_detail', 'knowledge_base', 'general']
+    dependencies: list[str] = []
 
     CUSTOMER_RAG_KEYWORDS = ('制度', '报价', '规则', '合同', '参数', '产品说明')
     ORDER_RAG_KEYWORDS = ('规则', '条款', '售后政策', '流程', '合同', '售后条款')
@@ -29,13 +32,25 @@ class SupervisorAgent(BaseAgent):
 
         rule_plan = self._build_plan_by_rules(request)
         if rule_plan.get('plan', {}).get('agents'):
-            return rule_plan
+            return self.attach_execution_meta(
+                rule_plan,
+                status='success',
+                confidence=0.9,
+                next_recommendation='按规则计划执行后续专业 Agent。',
+                message='规则路由命中。'
+            )
 
         llm_plan = self._build_plan_by_llm(request)
         if llm_plan.get('plan', {}).get('agents'):
-            return llm_plan
+            return self.attach_execution_meta(
+                llm_plan,
+                status='success',
+                confidence=0.75,
+                next_recommendation='按模型兜底计划执行后续专业 Agent。',
+                message='规则未命中，已使用模型兜底规划。'
+            )
 
-        return {
+        fallback_plan = {
             'task_type': 'general_analysis',
             'summary': '未命中明确场景，默认执行客户洞察。',
             'plan': self._make_plan(
@@ -44,6 +59,13 @@ class SupervisorAgent(BaseAgent):
                 reason='默认兜底计划'
             )
         }
+        return self.attach_execution_meta(
+            fallback_plan,
+            status='partial_failed',
+            confidence=0.55,
+            next_recommendation='建议补充明确业务场景或客户上下文。',
+            message='未命中明确场景，使用默认兜底计划。'
+        )
 
     def _build_plan_by_rules(self, request: AIChatRequest) -> dict[str, Any]:
         """基于业务规则的路由规划。"""
@@ -162,4 +184,3 @@ class SupervisorAgent(BaseAgent):
     def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
         """关键词命中判断。"""
         return any(keyword in text for keyword in keywords)
-

@@ -3,8 +3,6 @@
     <n-card title="客户详情" :bordered="false">
       <template #header-extra>
         <n-space>
-          <n-button :loading="aiAdviceLoading" @click="handleGenerateAdvice">AI 生成跟进建议</n-button>
-          <n-button :loading="aiSummaryLoading" @click="handleGenerateSummary">AI 总结跟进记录</n-button>
           <n-button :loading="multiAgentLoading" @click="handleRunMultiAgentAnalysis">{{ multiAgentButtonText }}</n-button>
           <n-button @click="handleRefresh">刷新</n-button>
           <n-button tertiary @click="goBack">返回</n-button>
@@ -171,99 +169,27 @@
           :result="multiAgentResult"
           :error="multiAgentError"
           @retry="handleRunMultiAgentAnalysis"
+          @task-created="handleTaskCreated"
         />
       </n-card>
 
-      <n-card title="基础 AI 能力（兼容）" :bordered="true" class="ai-panel-card legacy-ai-card">
-        <n-collapse>
-          <n-collapse-item title="AI 跟进建议（旧模块）" name="legacy-advice">
-            <n-card :bordered="false" class="legacy-inner-card">
-              <template #header-extra>
-                <n-space size="small" align="center">
-                  <n-tag size="small" :type="aiAdviceResult ? 'success' : 'default'">{{ aiAdviceResult ? '已生成' : '未生成' }}</n-tag>
-                  <n-button size="tiny" :loading="aiAdviceLoading" @click="handleGenerateAdvice">{{ adviceGenerateButtonText }}</n-button>
-                  <n-button size="tiny" :disabled="!aiAdviceResult" @click="handleCopyAdvice">复制结果</n-button>
-                </n-space>
-              </template>
-              <n-spin :show="aiAdviceLoading">
-                <div class="ai-meta-row">分析时间：{{ aiAdviceGeneratedAt || '-' }}</div>
-                <n-empty v-if="!aiAdviceResult" description="暂无 AI 跟进建议，请点击生成建议" />
-                <n-space v-else vertical :size="14">
-                  <div class="ai-row">
-                    <span class="ai-label">客户状态判断：</span>
-                    <span class="ai-value">{{ adviceStatusJudgement }}</span>
-                  </div>
-                  <div class="ai-row">
-                    <span class="ai-label">推荐下一步动作：</span>
-                  </div>
-                  <ul class="ai-list">
-                    <li v-for="(item, index) in adviceNextStepPoints" :key="`advice-${index}`">{{ item }}</li>
-                  </ul>
-                  <div class="ai-row">
-                    <span class="ai-label">推荐跟进时间：</span>
-                    <span class="ai-value">{{ aiAdviceResult.suggested_next_follow_time || '-' }}</span>
-                  </div>
-                  <div class="ai-row">
-                    <span class="ai-label">推荐沟通话术：</span>
-                  </div>
-                  <div class="ai-talk-track">{{ aiAdviceResult.recommended_talk_track || '-' }}</div>
-                  <div class="ai-row">
-                    <span class="ai-label">风险提醒：</span>
-                  </div>
-                  <ul class="ai-list">
-                    <li v-for="(item, index) in adviceRiskWarnings" :key="`advice-risk-${index}`">{{ item }}</li>
-                  </ul>
-                </n-space>
-              </n-spin>
-            </n-card>
-          </n-collapse-item>
-
-          <n-collapse-item title="AI 跟进总结（旧模块）" name="legacy-summary">
-            <n-card :bordered="false" class="legacy-inner-card">
-              <template #header-extra>
-                <n-space size="small" align="center">
-                  <n-tag size="small" :type="aiSummaryResult ? 'success' : 'default'">{{ aiSummaryResult ? '已生成' : '未生成' }}</n-tag>
-                  <n-button size="tiny" :loading="aiSummaryLoading" @click="handleGenerateSummary">{{ summaryGenerateButtonText }}</n-button>
-                  <n-button size="tiny" :disabled="!aiSummaryResult" @click="handleCopySummary">复制结果</n-button>
-                </n-space>
-              </template>
-              <n-spin :show="aiSummaryLoading">
-                <div class="ai-meta-row">分析时间：{{ aiSummaryGeneratedAt || '-' }}</div>
-                <n-empty v-if="!aiSummaryResult" description="暂无 AI 跟进总结，请点击生成总结" />
-                <n-space v-else vertical :size="14">
-                  <div class="ai-row">
-                    <span class="ai-label">历史跟进摘要：</span>
-                  </div>
-                  <ul class="ai-list">
-                    <li v-for="(item, index) in summaryHistoryPoints" :key="`point-${index}`">{{ item }}</li>
-                  </ul>
-                  <div class="ai-row">
-                    <span class="ai-label">客户关注点：</span>
-                    <span class="ai-value">{{ summaryCurrentFocus }}</span>
-                  </div>
-                  <div class="ai-row">
-                    <span class="ai-label">成交可能性判断：</span>
-                    <span class="ai-value">{{ dealProbabilityText }}</span>
-                  </div>
-                  <div class="ai-row">
-                    <span class="ai-label">当前阻塞点：</span>
-                  </div>
-                  <ul class="ai-list">
-                    <li v-for="(item, index) in summaryRiskPoints" :key="`risk-${index}`">{{ item }}</li>
-                  </ul>
-                  <div class="ai-row">
-                    <span class="ai-label">后续建议：</span>
-                  </div>
-                  <ul class="ai-list">
-                    <li v-for="(item, index) in summaryFollowUpAdvice" :key="`summary-advice-${index}`">{{ item }}</li>
-                  </ul>
-                </n-space>
-              </n-spin>
-            </n-card>
-          </n-collapse-item>
-        </n-collapse>
-      </n-card>
     </div>
+
+    <n-card title="关联任务" :bordered="false">
+      <template #header-extra>
+        <n-tag size="small" type="info">AI 确认任务闭环</n-tag>
+      </template>
+      <n-spin :show="taskLoading">
+        <n-empty v-if="!customerTasks.length" description="暂无关联任务" />
+        <n-data-table
+          v-else
+          :columns="taskColumns"
+          :data="customerTasks"
+          :pagination="false"
+          :locale="{ emptyText: '暂无关联任务' }"
+        />
+      </n-spin>
+    </n-card>
 
     <n-card title="操作记录" :bordered="false">
       <n-data-table
@@ -316,8 +242,6 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   NButton,
   NCard,
-  NCollapse,
-  NCollapseItem,
   NDataTable,
   NDatePicker,
   NDescriptions,
@@ -344,15 +268,11 @@ import {
   type FormRules
 } from 'naive-ui'
 import {
-  customerAIFollowAdviceApi,
-  customerAIFollowSummaryApi,
   customerDetailApi,
   customerFollowRecordCreateApi,
   customerFollowRecordDeleteApi,
   customerFollowRecordListApi,
   customerFollowRecordUpdateApi,
-  type CustomerAIFollowAdvice,
-  type CustomerAIFollowSummary,
   type CustomerFollowRecordItem,
   type CustomerFollowRecordPayload,
   type CustomerItem
@@ -360,6 +280,7 @@ import {
 import { aiChatApi } from '@/api/ai'
 import AiAnalysisPanel from '@/components/ai/AiAnalysisPanel.vue'
 import { orderListApi, type OrderListItem } from '@/api/order'
+import { taskListApi, type TaskDetail } from '@/api/task'
 import type { AIChatResult } from '@/types/ai'
 import {
   FOLLOW_TYPE_OPTIONS,
@@ -383,10 +304,7 @@ type OperationLogItem = {
 
 // 客户详情页本地持久化结构：按客户维度保存 AI 结果与操作记录。
 type CustomerDetailPersistedState = {
-  aiAdviceResult: CustomerAIFollowAdvice | null
-  aiSummaryResult: CustomerAIFollowSummary | null
-  aiAdviceGeneratedAt: string
-  aiSummaryGeneratedAt: string
+  // 旧版基础 AI 结果已清理，当前仅保留详情页演示操作日志的本地持久化。
   operationLogs: OperationLogItem[]
 }
 
@@ -400,23 +318,19 @@ const message = useMessage()
 const detailLoading = ref(false)
 const followLoading = ref(false)
 const followSubmitLoading = ref(false)
-const aiAdviceLoading = ref(false)
-const aiSummaryLoading = ref(false)
 const multiAgentLoading = ref(false)
 const relatedOrderLoading = ref(false)
+const taskLoading = ref(false)
 
 // 客户详情与跟进记录列表数据
 const detail = ref<CustomerItem | null>(null)
 const followList = ref<CustomerFollowRecordItem[]>([])
-const aiAdviceResult = ref<CustomerAIFollowAdvice | null>(null)
-const aiSummaryResult = ref<CustomerAIFollowSummary | null>(null)
 const multiAgentResult = ref<AIChatResult | null>(null)
 const multiAgentError = ref('')
-const aiAdviceGeneratedAt = ref('')
-const aiSummaryGeneratedAt = ref('')
 
 // 关联订单与操作记录
 const relatedOrders = ref<OrderListItem[]>([])
+const customerTasks = ref<TaskDetail[]>([])
 const operationLogs = ref<OperationLogItem[]>([])
 
 // 读取本地持久化映射。
@@ -496,80 +410,33 @@ const relatedOrderSummary = computed(() => {
 
 const recentRelatedOrders = computed(() => relatedOrders.value.slice(0, 5))
 
-const adviceStatusJudgement = computed(() => {
-  const intent = aiAdviceResult.value?.intent_level?.label || '中意向'
-  const status = detail.value ? getCustomerStatusLabel(detail.value.status) : '-'
-  return `当前客户处于“${status}”，AI 判断意向等级为“${intent}”。`
-})
+const getTaskStatusLabel = (status: string): string => {
+  const map: Record<string, string> = {
+    pending: '待处理',
+    processing: '处理中',
+    completed: '已完成',
+    cancelled: '已取消'
+  }
+  return map[status] || status || '-'
+}
 
-// AI 按钮文案：未生成时提示“生成”，已生成时提示“重新生成”。
-const adviceGenerateButtonText = computed(() => (aiAdviceResult.value ? '重新生成' : '生成建议'))
-const summaryGenerateButtonText = computed(() => (aiSummaryResult.value ? '重新生成' : '生成总结'))
+const getTaskStatusTagType = (status: string): 'default' | 'primary' | 'info' | 'success' | 'warning' | 'error' => {
+  if (status === 'pending') return 'warning'
+  if (status === 'processing') return 'info'
+  if (status === 'completed') return 'success'
+  if (status === 'cancelled') return 'default'
+  return 'default'
+}
+
+const getTaskPriorityTagType = (priority: string): 'default' | 'primary' | 'info' | 'success' | 'warning' | 'error' => {
+  if (priority === '高') return 'error'
+  if (priority === '中') return 'warning'
+  if (priority === '低') return 'success'
+  return 'default'
+}
+
+// 多 Agent 按钮文案：清理旧版基础 AI 后，详情页只保留新版统一分析入口。
 const multiAgentButtonText = computed(() => (multiAgentResult.value ? '重新多Agent分析' : 'AI 多Agent分析'))
-
-// 建议区动作兜底，避免接口返回空数组时出现空白区域。
-const adviceNextStepPoints = computed(() => {
-  const points = aiAdviceResult.value?.next_step_advice || []
-  return points.length ? points : ['建议先补充关键决策信息，再推进下一步跟进动作。']
-})
-
-// 总结区历史摘要兜底：优先用总结结果，缺失时给出占位提示。
-const summaryHistoryPoints = computed(() => {
-  const points = aiSummaryResult.value?.history_key_points || []
-  return points.length ? points : ['暂无历史跟进摘要，建议先补充最近一次沟通记录。']
-})
-
-// 总结区阻塞点兜底：优先用总结结果中的潜在风险。
-const summaryRiskPoints = computed(() => {
-  const points = aiSummaryResult.value?.potential_risks || []
-  return points.length ? points : ['暂无明显阻塞点，可继续推进需求确认与商务沟通。']
-})
-const hasSummaryRiskData = computed(() => (aiSummaryResult.value?.potential_risks || []).length > 0)
-
-// 总结区客户关注点：优先使用总结 current_progress，再回退到建议中的 current_focus。
-const summaryCurrentFocus = computed(() => {
-  const fromSummary = aiSummaryResult.value?.current_progress?.trim()
-  if (fromSummary) return fromSummary
-  const fromAdvice = aiAdviceResult.value?.current_focus?.trim()
-  if (fromAdvice) return fromAdvice
-  return '暂无关注点数据'
-})
-
-const adviceRiskWarnings = computed(() => {
-  if (hasSummaryRiskData.value) return aiSummaryResult.value?.potential_risks || []
-  const intentCode = aiAdviceResult.value?.intent_level?.code
-  if (intentCode === 'high') return ['风险可控，建议持续推进采购与决策流程。']
-  if (intentCode === 'low') return ['客户意向偏低，需防止沟通中断或需求降级。']
-  return ['当前信息量有限，建议补充一次需求澄清会议后再评估风险。']
-})
-
-const dealProbabilityText = computed(() => {
-  // 总结优先：先根据总结内容粗略判断，再回退建议意向等级。
-  const progress = (aiSummaryResult.value?.current_progress || '').toLowerCase()
-  if (progress.includes('已下单') || progress.includes('推进') || progress.includes('意向高')) {
-    return '较高（建议推进方案评审与商务确认）'
-  }
-  if (progress.includes('观望') || progress.includes('暂停') || progress.includes('预算不足') || progress.includes('意向低')) {
-    return '较低（建议先重新确认预算与需求优先级）'
-  }
-
-  const code = aiAdviceResult.value?.intent_level?.code
-  if (code === 'high') return '较高（建议推进方案评审与商务确认）'
-  if (code === 'low') return '较低（建议先重新确认预算与需求优先级）'
-  return '中等（建议补齐关键决策信息后推进）'
-})
-
-const summaryFollowUpAdvice = computed(() => {
-  // 优先复用建议结果；若仅有总结结果，则按总结风险给出演示级建议。
-  if (aiAdviceResult.value?.next_step_advice?.length) return aiAdviceResult.value.next_step_advice
-  if (hasSummaryRiskData.value) {
-    return [
-      '建议围绕当前阻塞点安排一次专项沟通，明确责任人与截止时间。',
-      '对高风险事项设置下一次跟进节点，并在 48 小时内复盘进展。'
-    ]
-  }
-  return ['建议先安排一次需求澄清沟通，明确预算、决策人与上线时间。']
-})
 
 const relatedOrderColumns: DataTableColumns<OrderListItem> = [
   { title: '订单编号', key: 'order_no', minWidth: 180 },
@@ -606,15 +473,31 @@ const operationLogColumns: DataTableColumns<OperationLogItem> = [
   { title: '操作时间', key: 'time', width: 180 }
 ]
 
+const taskColumns: DataTableColumns<TaskDetail> = [
+  { title: '任务标题', key: 'title', minWidth: 180 },
+  {
+    title: '状态',
+    key: 'status',
+    width: 100,
+    render: (row) => h(NTag, { size: 'small', type: getTaskStatusTagType(row.status) }, { default: () => getTaskStatusLabel(row.status) })
+  },
+  {
+    title: '优先级',
+    key: 'priority',
+    width: 100,
+    render: (row) => h(NTag, { size: 'small', type: getTaskPriorityTagType(row.priority) }, { default: () => row.priority || '-' })
+  },
+  { title: '负责人', key: 'owner', width: 120 },
+  { title: '截止时间', key: 'due_time', minWidth: 160 },
+  { title: '创建时间', key: 'created_at', minWidth: 160 }
+]
+
 // 保存当前客户详情页可持久化数据。
 const persistCurrentCustomerDetailState = () => {
   if (!customerId.value) return
   const map = getPersistedMap()
   map[customerId.value] = {
-    aiAdviceResult: aiAdviceResult.value,
-    aiSummaryResult: aiSummaryResult.value,
-    aiAdviceGeneratedAt: aiAdviceGeneratedAt.value,
-    aiSummaryGeneratedAt: aiSummaryGeneratedAt.value,
+    // 旧版基础 AI 状态已移除，本地只保存操作日志。
     operationLogs: operationLogs.value
   }
   setPersistedMap(map)
@@ -627,10 +510,7 @@ const restorePersistedCustomerDetailState = () => {
   const persisted = map[customerId.value]
   if (!persisted) return
 
-  aiAdviceResult.value = persisted.aiAdviceResult || null
-  aiSummaryResult.value = persisted.aiSummaryResult || null
-  aiAdviceGeneratedAt.value = persisted.aiAdviceGeneratedAt || ''
-  aiSummaryGeneratedAt.value = persisted.aiSummaryGeneratedAt || ''
+  // 旧版基础 AI 状态已移除，刷新时只恢复演示操作日志。
   operationLogs.value = Array.isArray(persisted.operationLogs) ? persisted.operationLogs : []
 }
 
@@ -771,6 +651,25 @@ const fetchRelatedOrders = async () => {
   }
 }
 
+// 获取当前客户关联任务列表：展示 AI 确认创建后的真实任务。
+const fetchCustomerTasks = async () => {
+  if (!customerId.value) return
+
+  taskLoading.value = true
+  try {
+    const res = await taskListApi({ customer_id: customerId.value })
+    if (res.data.code !== 0) {
+      message.error(res.data.message || '关联任务加载失败')
+      return
+    }
+    customerTasks.value = Array.isArray(res.data.data) ? res.data.data : []
+  } catch (_error) {
+    message.error('关联任务请求失败')
+  } finally {
+    taskLoading.value = false
+  }
+}
+
 const handleFollowSearch = async () => {
   followPagination.page = 1
   await fetchFollowList()
@@ -855,124 +754,6 @@ const handleDeleteFollow = async (id: number) => {
   }
 }
 
-// 构建 AI 建议复制文本。
-const buildAdviceCopyText = () => {
-  if (!aiAdviceResult.value) return ''
-  return [
-    '【AI 跟进建议】',
-    `分析时间：${aiAdviceGeneratedAt.value || '-'}`,
-    `客户状态判断：${adviceStatusJudgement.value}`,
-    `推荐跟进时间：${aiAdviceResult.value.suggested_next_follow_time || '-'}`,
-    '推荐下一步动作：',
-    ...adviceNextStepPoints.value.map((item, idx) => `${idx + 1}. ${item}`),
-    '推荐沟通话术：',
-    aiAdviceResult.value.recommended_talk_track || '-',
-    '风险提醒：',
-    ...adviceRiskWarnings.value.map((item, idx) => `${idx + 1}. ${item}`)
-  ].join('\n')
-}
-
-// 构建 AI 总结复制文本。
-const buildSummaryCopyText = () => {
-  if (!aiSummaryResult.value) return ''
-  return [
-    '【AI 跟进总结】',
-    `分析时间：${aiSummaryGeneratedAt.value || '-'}`,
-    '历史跟进摘要：',
-    ...summaryHistoryPoints.value.map((item, idx) => `${idx + 1}. ${item}`),
-    `客户关注点：${summaryCurrentFocus.value}`,
-    `成交可能性判断：${dealProbabilityText.value}`,
-    '当前阻塞点：',
-    ...summaryRiskPoints.value.map((item, idx) => `${idx + 1}. ${item}`),
-    '后续建议：',
-    ...summaryFollowUpAdvice.value.map((item, idx) => `${idx + 1}. ${item}`)
-  ].join('\n')
-}
-
-// 复制 AI 建议。
-const handleCopyAdvice = async () => {
-  const text = buildAdviceCopyText()
-  if (!text) {
-    message.warning('暂无可复制的 AI 建议')
-    return
-  }
-  try {
-    await navigator.clipboard.writeText(text)
-    message.success('AI 建议已复制')
-  } catch (_error) {
-    message.error('复制失败，请手动复制')
-  }
-}
-
-// 复制 AI 总结。
-const handleCopySummary = async () => {
-  const text = buildSummaryCopyText()
-  if (!text) {
-    message.warning('暂无可复制的 AI 总结')
-    return
-  }
-  try {
-    await navigator.clipboard.writeText(text)
-    message.success('AI 总结已复制')
-  } catch (_error) {
-    message.error('复制失败，请手动复制')
-  }
-}
-
-// 调用 AI 跟进建议接口并展示结果。
-const handleGenerateAdvice = async () => {
-  if (!customerId.value) {
-    message.error('客户编号无效')
-    return
-  }
-  aiAdviceLoading.value = true
-  try {
-    const res = await customerAIFollowAdviceApi(customerId.value)
-    if (res.data.code !== 0) {
-      message.error(res.data.message || 'AI 跟进建议生成失败')
-      return
-    }
-    aiAdviceResult.value = res.data.data
-    aiAdviceGeneratedAt.value = new Date().toLocaleString('zh-CN')
-    appendOperationLog('AI', '生成了 AI 跟进建议')
-    // 生成完成后滚动到 AI 结果区域，便于用户直接查看内容。
-    await nextTick()
-    aiPanelsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-    message.success('AI 跟进建议生成成功')
-  } catch (_error) {
-    message.error('AI 跟进建议请求失败')
-  } finally {
-    aiAdviceLoading.value = false
-  }
-}
-
-// 调用 AI 跟进总结接口并展示结果。
-const handleGenerateSummary = async () => {
-  if (!customerId.value) {
-    message.error('客户编号无效')
-    return
-  }
-  aiSummaryLoading.value = true
-  try {
-    const res = await customerAIFollowSummaryApi(customerId.value)
-    if (res.data.code !== 0) {
-      message.error(res.data.message || 'AI 跟进总结生成失败')
-      return
-    }
-    aiSummaryResult.value = res.data.data
-    aiSummaryGeneratedAt.value = new Date().toLocaleString('zh-CN')
-    appendOperationLog('AI', '生成了 AI 跟进总结')
-    // 生成完成后滚动到 AI 结果区域，便于用户直接查看内容。
-    await nextTick()
-    aiPanelsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-    message.success('AI 跟进总结生成成功')
-  } catch (_error) {
-    message.error('AI 跟进总结请求失败')
-  } finally {
-    aiSummaryLoading.value = false
-  }
-}
-
 // 调用多 Agent 统一分析接口：用于展示可演示的计划与分步结果。
 const handleRunMultiAgentAnalysis = async () => {
   if (!customerId.value) {
@@ -984,7 +765,8 @@ const handleRunMultiAgentAnalysis = async () => {
   try {
     const res = await aiChatApi({
       scene: 'customer_detail',
-      user_message: '分析当前客户状态，并给出下一步跟进建议',
+      // 默认演示链路需要包含“生成待办”，确保后端会执行 task_execution_agent 并返回任务草稿。
+      user_message: '请分析当前客户状态，给出下一步跟进建议，并生成待办',
       context: {
         customer_id: customerId.value
       }
@@ -1009,6 +791,12 @@ const handleRunMultiAgentAnalysis = async () => {
   }
 }
 
+// AI 任务草稿确认创建成功后，刷新客户关联任务列表并记录演示操作日志。
+const handleTaskCreated = async () => {
+  appendOperationLog('任务', '确认创建了一条 AI 跟进任务')
+  await fetchCustomerTasks()
+}
+
 const goBack = () => {
   router.push('/customer')
 }
@@ -1017,6 +805,7 @@ const handleRefresh = async () => {
   await fetchDetail()
   await fetchFollowList()
   await fetchRelatedOrders()
+  await fetchCustomerTasks()
   // 刷新后显式恢复当前客户的本地持久化状态，避免展示态与缓存态不一致。
   restorePersistedCustomerDetailState()
   message.success('客户详情已刷新')
@@ -1026,6 +815,7 @@ onMounted(async () => {
   await fetchDetail()
   await fetchFollowList()
   await fetchRelatedOrders()
+  await fetchCustomerTasks()
   restorePersistedCustomerDetailState()
 
   // 支持从客户列表页“新增跟进”按钮直达详情并自动打开弹窗。
@@ -1134,52 +924,4 @@ onMounted(async () => {
   border-radius: 10px;
 }
 
-.legacy-ai-card :deep(.n-collapse-item__header) {
-  font-weight: 600;
-}
-
-.legacy-inner-card {
-  background: #fafafa;
-}
-
-.ai-meta-row {
-  margin-bottom: 8px;
-  color: #999;
-  font-size: 12px;
-}
-
-.ai-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.ai-label {
-  color: #666;
-  min-width: 110px;
-}
-
-.ai-value {
-  color: #333;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.ai-list {
-  margin: 0 0 0 2px;
-  padding-left: 18px;
-  color: #333;
-  line-height: 1.7;
-}
-
-.ai-talk-track {
-  border: 1px solid #eceff5;
-  background: #f8fafc;
-  border-radius: 8px;
-  padding: 10px 12px;
-  color: #333;
-  line-height: 1.8;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
 </style>

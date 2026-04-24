@@ -20,6 +20,9 @@ class FollowupStrategyAgent(BaseAgent):
     """followup_strategy_agent 实现。"""
 
     name = 'followup_strategy_agent'
+    description = '基于客户洞察、知识支持和历史记忆生成下一步销售跟进策略。'
+    supported_scenes = ['customer_detail']
+    dependencies = ['customer_insight_agent']
 
     def run(self, db: Session, request: AIChatRequest, previous_outputs: dict[str, Any]) -> dict[str, Any]:
         """执行跟进策略生成逻辑。"""
@@ -34,6 +37,7 @@ class FollowupStrategyAgent(BaseAgent):
         customer_insight = previous_outputs.get('customer_insight_agent', {})
         if not isinstance(customer_insight, dict):
             customer_insight = {}
+        has_customer_insight = bool(customer_insight) and not bool(customer_insight.get('error'))
         knowledge_support = previous_outputs.get('knowledge_rag_agent', {})
         if not isinstance(knowledge_support, dict):
             knowledge_support = {}
@@ -86,7 +90,21 @@ class FollowupStrategyAgent(BaseAgent):
             except Exception:
                 pass
 
-        return output
+        if has_customer_insight:
+            return self.attach_execution_meta(
+                output,
+                status='success',
+                confidence=0.82,
+                next_recommendation='可将跟进策略转成销售待办任务。',
+                message='跟进策略生成完成。'
+            )
+        return self.attach_execution_meta(
+            output,
+            status='partial_failed',
+            confidence=0.55,
+            next_recommendation='建议先执行客户洞察后再优化跟进策略。',
+            message='缺少有效客户洞察，已基于现有上下文生成兜底策略。'
+        )
 
     @staticmethod
     def _build_fallback(customer_insight: dict[str, Any]) -> dict[str, Any]:
@@ -127,4 +145,3 @@ class FollowupStrategyAgent(BaseAgent):
         if isinstance(value, str) and value.strip():
             return [value.strip()]
         return []
-

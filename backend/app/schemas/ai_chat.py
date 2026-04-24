@@ -27,6 +27,12 @@ class AIExecutionPlan(BaseModel):
     need_rag: bool
     # 路由原因说明。
     reason: str
+    # 实际执行的 Agent 顺序：第一阶段用于记录轻量跳过后的执行轨迹，不影响旧前端读取 agents。
+    actual_agents: list[str] = Field(default_factory=list)
+    # 被跳过的 Agent 列表：用于前端或追踪查看本次编排的降级情况。
+    skipped_agents: list[str] = Field(default_factory=list)
+    # 动态决策说明：记录跳过原因等轻量编排说明。
+    dynamic_reason: str = Field(default='')
 
 
 class AIChatResult(BaseModel):

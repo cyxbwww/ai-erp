@@ -12,12 +12,16 @@ from app.prompts.agent_prompts import AgentPrompts
 from app.schemas.agent import TaskExecutionOutput
 from app.schemas.ai_chat import AIChatRequest
 from app.services.llm_service import LLMService
+from app.services.task_draft_service import TaskDraftService
 
 
 class TaskExecutionAgent(BaseAgent):
     """task_execution_agent 实现。"""
 
     name = 'task_execution_agent'
+    description = '将跟进策略转换为可执行的销售任务建议。'
+    supported_scenes = ['customer_detail']
+    dependencies = ['followup_strategy_agent']
 
     def run(self, db: Session, request: AIChatRequest, previous_outputs: dict[str, Any]) -> dict[str, Any]:
         """根据上游策略输出生成可执行任务。"""
@@ -26,6 +30,7 @@ class TaskExecutionAgent(BaseAgent):
         followup_strategy = previous_outputs.get('followup_strategy_agent', {})
         if not isinstance(followup_strategy, dict):
             followup_strategy = {}
+        has_followup_strategy = bool(followup_strategy) and not bool(followup_strategy.get('error'))
         customer_insight = previous_outputs.get('customer_insight_agent', {})
         if not isinstance(customer_insight, dict):
             customer_insight = {}
@@ -43,7 +48,29 @@ class TaskExecutionAgent(BaseAgent):
             fallback_data=fallback
         )
         normalized = self._normalize(llm_data, fallback_customer_id=customer_id)
-        return normalized.model_dump()
+        output = normalized.model_dump()
+        # 第二阶段新增任务草稿扩展点：保留原顶层任务字段，同时补充未来任务中心可复用结构。
+        task_draft = TaskDraftService.build_customer_followup_draft(
+            task_output=output,
+            request_context=request.context
+        )
+        output['task_draft'] = task_draft
+        output['task_payload'] = TaskDraftService.build_task_payload(task_draft)
+        if has_followup_strategy:
+            return self.attach_execution_meta(
+                output,
+                status='success',
+                confidence=0.8,
+                next_recommendation='请销售负责人确认任务内容后进入待办流程。',
+                message='任务建议生成完成。'
+            )
+        return self.attach_execution_meta(
+            output,
+            status='partial_failed',
+            confidence=0.5,
+            next_recommendation='建议先生成跟进策略，再确认任务内容。',
+            message='缺少有效跟进策略，已生成兜底任务建议。'
+        )
 
     @staticmethod
     def _build_fallback(customer_id: int, followup_strategy: dict[str, Any]) -> dict[str, Any]:
@@ -82,4 +109,3 @@ class TaskExecutionAgent(BaseAgent):
             reminder_text=str(data.get('reminder_text', '')).strip(),
             related_customer_id=max(related_customer_id, 0)
         )
-

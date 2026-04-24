@@ -1,4 +1,4 @@
-// 订单接口文件：封装订单模块列表、详情、新增、编辑、删除、状态流转与 AI 分析请求。
+// 订单接口文件：封装订单模块列表、详情、新增、编辑、删除与状态流转请求。
 import http from './http'
 
 // 订单明细项类型
@@ -101,24 +101,6 @@ export interface OrderStatusPayload {
   status: 'draft' | 'confirmed' | 'completed' | 'cancelled'
 }
 
-// 订单 AI 分析请求参数
-export interface OrderAIAnalysisPayload {
-  analysis_type: 'analysis' | 'risk' | 'advice'
-}
-
-// 订单 AI 分析返回结构
-export interface OrderAIAnalysisResult {
-  analysis_type: 'analysis' | 'risk' | 'advice'
-  title: string
-  summary: string
-  highlights: string[]
-  risks: string[]
-  suggestions: string[]
-  // 后端统一返回风险等级：列表页和详情页以该字段为准，不再前端推导。
-  risk_level?: 'low' | 'medium' | 'high'
-  ai_source: 'deepseek' | 'fallback'
-}
-
 // 获取订单列表
 export const orderListApi = (params: OrderListParams) => {
   return http.get('/api/order/list', { params })
@@ -149,7 +131,3 @@ export const orderDeleteApi = (id: number) => {
   return http.delete(`/api/order/delete/${id}`)
 }
 
-// 订单 AI 分析
-export const orderAIAnalysisApi = (id: number, payload: OrderAIAnalysisPayload) => {
-  return http.post(`/api/order/${id}/ai-analysis`, payload)
-}

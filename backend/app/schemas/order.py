@@ -36,8 +36,3 @@ class OrderStatusUpdate(BaseModel):
     id: int
     status: str
 
-
-class OrderAIAnalysisPayload(BaseModel):
-    """订单 AI 分析请求模型：用于区分分析类型。"""
-
-    analysis_type: str = 'analysis'

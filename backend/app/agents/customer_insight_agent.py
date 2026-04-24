@@ -19,13 +19,16 @@ class CustomerInsightAgent(BaseAgent):
     """customer_insight_agent 实现：支持短期记忆增强。"""
 
     name = 'customer_insight_agent'
+    description = '基于客户档案、跟进记录、订单历史和短期记忆生成客户洞察。'
+    supported_scenes = ['customer_detail']
+    dependencies: list[str] = []
 
     def run(self, db: Session, request: AIChatRequest, previous_outputs: dict[str, Any]) -> dict[str, Any]:
         """执行客户洞察分析并返回结构化 JSON。"""
         _ = previous_outputs
         customer_id = int(request.context.get('customer_id') or 0)
         if customer_id <= 0:
-            return CustomerInsightOutput(
+            output = CustomerInsightOutput(
                 customer_stage='线索阶段',
                 intent_level='低',
                 main_concerns=['缺少 customer_id，无法定位客户档案。'],
@@ -33,6 +36,13 @@ class CustomerInsightAgent(BaseAgent):
                 suggestions=['请在 context 传入 customer_id 后重试。'],
                 analysis_summary='缺少客户编号，返回兜底结果。'
             ).model_dump()
+            return self.attach_execution_meta(
+                output,
+                status='partial_failed',
+                confidence=0.25,
+                next_recommendation='请补充 customer_id 后重新执行客户洞察。',
+                message='缺少客户编号，已返回兜底客户洞察。'
+            )
 
         context = AgentQueryTools.get_customer_insight_context(db=db, customer_id=customer_id, follow_limit=8)
 
@@ -82,7 +92,13 @@ class CustomerInsightAgent(BaseAgent):
         except Exception:
             pass
 
-        return output
+        return self.attach_execution_meta(
+            output,
+            status='success',
+            confidence=0.85,
+            next_recommendation='可继续生成跟进策略或结合知识库校验业务规则。',
+            message='客户洞察分析完成。'
+        )
 
     @staticmethod
     def _build_fallback(context: dict[str, Any]) -> dict[str, Any]:
@@ -131,4 +147,3 @@ class CustomerInsightAgent(BaseAgent):
         if isinstance(value, str) and value.strip():
             return [value.strip()]
         return []
-
